@@ -1,12 +1,12 @@
-# Сборка релиза: Actions → Release → Run workflow → ввести версию, например v1.0.0.
-# Собирает ТЯГУ под Windows, macOS и Linux и выкладывает архивы на страницу Releases.
+# Making a release: Actions → Release → Run workflow → enter a version, e.g. v1.0.0.
+# Builds TYAGA for Windows, macOS and Linux and puts the archives on the Releases page.
 name: Release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Версия, например v1.0.0"
+        description: "Version, e.g. v1.0.0"
         required: true
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
         run: |
           set -eu
           if ! echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Версия должна выглядеть как v1.0.0"; exit 1
+            echo "The version must look like v1.0.0"; exit 1
           fi
           mkdir -p dist
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
@@ -49,4 +49,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
-        run: gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "ТЯГА $VERSION" --generate-notes
+        run: gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "TYAGA $VERSION" --generate-notes

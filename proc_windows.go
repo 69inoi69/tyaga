@@ -1,6 +1,6 @@
 package main
 
-// То, что на Windows делается по-своему.
+// Things that work differently on Windows.
 
 import (
 	"os/exec"
@@ -10,12 +10,12 @@ import (
 
 const createNoWindow = 0x08000000
 
-// hideWindow: запускать yt-dlp и ffmpeg без лишних чёрных окон.
+// hideWindow runs yt-dlp and ffmpeg without extra black console windows.
 func hideWindow(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 }
 
-// killTree останавливает процесс вместе с дочерними (yt-dlp запускает ffmpeg).
+// killTree stops a process together with its children (yt-dlp starts ffmpeg).
 func killTree(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
@@ -25,17 +25,17 @@ func killTree(cmd *exec.Cmd) {
 	k.Run()
 }
 
-// openURL открывает ссылку в браузере по умолчанию.
+// openURL opens a link in the default browser.
 func openURL(url string) {
 	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }
 
-// openFolder открывает папку в Проводнике.
+// openFolder opens a folder in Explorer.
 func openFolder(dir string) {
 	exec.Command("explorer.exe", dir).Start()
 }
 
-// consoleUTF8: чтобы кириллица в консоли не превращалась в кракозябры.
+// consoleUTF8 makes non-Latin text in the console readable instead of mojibake.
 func consoleUTF8() {
 	syscall.NewLazyDLL("kernel32.dll").NewProc("SetConsoleOutputCP").Call(65001)
 }

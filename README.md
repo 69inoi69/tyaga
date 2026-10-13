@@ -1,83 +1,81 @@
-# ТЯГА
+# ТЯГА (TYAGA)
 
-Скачивает видео и звук с YouTube. Одна программа без установки, интерфейс в браузере, внутри — [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+Downloads video and audio from YouTube. One program, no install, the interface is a page in your browser. Under the hood it's [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 
-*Portable YouTube video & audio downloader with a browser UI. One file, no install, powered by yt-dlp.*
+## What it does
 
-## Что умеет
+- **Video** in MP4 at the best quality. The "for editing" checkbox gives H.264 + AAC, so the file opens in DaVinci Resolve and any player.
+- **Audio** in M4A (the original YouTube track, no re-encoding) or MP3 (highest quality).
+- For music: clean tags (artist, title without "(Official Video)", year) and a square album cover.
+- A whole album as one video with chapters → **split into separate tracks** with numbers and titles.
+- **Whole playlists** — into their own folder, numbered.
+- A queue: paste a bunch of links at once, cancel any of them.
+- **From your phone** over home Wi-Fi: add a link and grab the finished file.
 
-- **Видео** в MP4 в лучшем качестве. Галочка «для монтажа» — H.264 + AAC, чтобы файл открылся в DaVinci Resolve и любом плеере.
-- **Аудио** в M4A (оригинальная дорожка YouTube, без перекодирования) или MP3 (максимальное качество).
-- Для музыки: аккуратные теги (исполнитель, название без «(Official Video)», год), квадратная обложка альбома.
-- Альбом одним роликом с главами → **нарезка на отдельные треки** с номерами и названиями.
-- **Плейлисты** целиком — в отдельную папку, с номерами.
-- Очередь: можно накидать сразу пачку ссылок, отменить любую.
-- **С телефона** по домашнему Wi-Fi: добавить ссылку и забрать готовый файл к себе.
+Files are saved to `Downloads/YouTube`.
 
-Файлы сохраняются в `Загрузки/YouTube`.
+## How to run
 
-## Как запустить
+Download the archive for your system from [Releases](../../releases), unpack it anywhere and run `tyaga`. A page opens in your browser.
 
-Скачай архив под свою систему со страницы [Releases](../../releases), распакуй куда угодно и запусти `tyaga`. Откроется страница в браузере.
+On the first start TYAGA downloads everything it needs into a `bin` folder next to itself: yt-dlp, ffmpeg and Deno (yt-dlp needs Deno to deal with YouTube). On Windows that's about 250 MB, once. TYAGA updates its own copy of yt-dlp on every start — YouTube changes things often, and old versions stop working. If you already have yt-dlp, ffmpeg or Deno installed, TYAGA uses them and downloads nothing.
 
-При первом запуске ТЯГА сама скачает рядом с собой, в папку `bin`, всё, что ей нужно: yt-dlp, ffmpeg и Deno (yt-dlp нужен Deno, чтобы разбираться с YouTube). На Windows это около 250 МБ, один раз. Свою копию yt-dlp ТЯГА обновляет при каждом запуске — YouTube часто что-то меняет, и старые версии перестают качать. Если yt-dlp, ffmpeg или Deno у тебя уже установлены в системе, ТЯГА возьмёт их и ничего качать не будет.
+The TYAGA folder is portable — move it anywhere, even to a USB stick.
 
-Папку с ТЯГОЙ можно переносить как есть, хоть на флешке.
+Close the console window and TYAGA quits.
 
-Закрыл окно консоли — ТЯГА выключилась.
+**Windows.** If SmartScreen says "Windows protected your PC", click "More info" → "Run anyway". The program isn't signed, which is normal for small projects.
 
-**Windows.** Если SmartScreen пишет «Windows защитила ваш компьютер» — «Подробнее» → «Выполнить в любом случае». Программа не подписана, это нормально для маленьких проектов.
+**macOS.** If the system refuses to open it: `xattr -d com.apple.quarantine tyaga`. Install ffmpeg with Homebrew: `brew install ffmpeg`.
 
-**macOS.** Если система не даёт открыть файл: `xattr -d com.apple.quarantine tyaga`. ffmpeg поставь через Homebrew: `brew install ffmpeg`.
+**Linux.** Install ffmpeg from your package manager: `sudo apt install ffmpeg` (or your distro's equivalent).
 
-**Linux.** ffmpeg поставь из менеджера пакетов: `sudo apt install ffmpeg` (или аналог для твоего дистрибутива).
+## From your phone
 
-## С телефона
+At the bottom of the page there's "Phone: off". Click it and an address with a short code appears, like `http://192.168.1.5:8765/?t=k7m2pq`. Open it on a phone on the same Wi-Fi. Links added from the phone download to the computer, and finished files can be downloaded right to the phone.
 
-Внизу страницы — «Телефон: выкл». Нажми, и появится адрес с коротким кодом, например `http://192.168.1.5:8765/?t=k7m2pq`. Открой его на телефоне в той же Wi-Fi сети. Добавленные с телефона ссылки качаются на компьютер, а готовые файлы можно скачать прямо на телефон.
+- The code is new every time you turn this on. Without it nobody on the network can do anything, and after 20 wrong attempts the access turns itself off.
+- The first time, Windows asks about the firewall — allow access on private networks.
+- The computer has to be on: it's the one doing the downloading.
 
-- Код новый при каждом включении. Без него никто в сети ничего не сделает, а после 20 неверных попыток доступ выключается сам.
-- Windows при первом включении спросит про брандмауэр — разреши доступ в частных сетях.
-- Компьютер должен быть включён, качает именно он.
+## If YouTube asks you to sign in
 
-## Если YouTube просит войти
+Some videos are only available to signed-in users (or YouTube starts thinking you're a bot). Export your YouTube cookies from the browser in Netscape format (for example with the "Get cookies.txt LOCALLY" extension) and put the file as `youtube-cookies.txt` next to the program.
 
-Некоторые ролики YouTube отдаёт только «залогиненным» (или начинает думать, что ты бот). Тогда экспортируй куки YouTube из браузера в формате Netscape (например, расширением «Get cookies.txt LOCALLY») и положи файл `youtube-cookies.txt` рядом с программой.
+Cookies are access to your account. Don't send them to anyone and don't commit them anywhere (`.gitignore` already excludes them).
 
-Куки — это доступ к твоему аккаунту. Никому их не отправляй и не заливай в репозитории (в `.gitignore` они уже исключены).
+## How it works
 
-## Как это устроено
-
-ТЯГА поднимает маленький веб-сервер у тебя на компьютере (только для этого компьютера, с одноразовым токеном в адресе) и открывает страницу. Страница отправляет ссылки серверу, сервер по одной запускает yt-dlp, читает его вывод и рассказывает странице, как дела.
+TYAGA starts a tiny web server on your computer (reachable only from this computer, with a one-time token in the address) and opens the page. The page sends links to the server, the server runs yt-dlp for them one at a time, reads its output and tells the page how it's going.
 
 ```
-main.go         сервер, доступ с телефона
-jobs.go         очередь загрузок, команда для yt-dlp, теги для нарезанных треков
-tools.go        поиск и автоскачивание yt-dlp, ffmpeg, Deno
-proc_*.go       то, что на Windows и на Linux/macOS делается по-разному
-index.html      вся страница: разметка, стили, скрипт
+main.go         server, phone access
+jobs.go         download queue, yt-dlp command, tags for split tracks
+tools.go        finding and auto-downloading yt-dlp, ffmpeg, Deno
+proc_*.go       things that differ between Windows and Linux/macOS
+index.html      the whole page: markup, styles, script
 ```
 
-Никаких сторонних библиотек — только стандартный Go.
+No third-party libraries — only the Go standard library.
 
-## Собрать самому
+## Build it yourself
 
-Нужен [Go](https://go.dev/dl/) 1.22 или новее.
+You need [Go](https://go.dev/dl/) 1.22 or newer.
 
 ```
 go build -o tyaga .
 ```
 
-Под другую систему: `GOOS=windows GOARCH=amd64 go build -o tyaga.exe .`
+For another system: `GOOS=windows GOARCH=amd64 go build -o tyaga.exe .`
 
-Параметры запуска: `-out папка` — куда сохранять, `-no-browser` — не открывать браузер.
+Options: `-out folder` — where to save, `-no-browser` — don't open the browser.
 
-Релиз со сборками под все системы: Actions → Release → Run workflow → версия вида `v1.0.0`.
+A release with builds for all systems: Actions → Release → Run workflow → a version like `v1.0.0`.
 
-## История
+## History
 
-Началась как `TYAGA.cmd` — bat-файл и программа на TypeScript в одном файле, только для Windows и с установленным Deno. Потом переписана на Go, чтобы стать одной программой, которая работает везде.
+It started as `TYAGA.cmd` — a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it was rewritten in Go to become one program that runs everywhere.
 
-## Лицензия
+## License
 
-[MIT](LICENSE). yt-dlp, ffmpeg и Deno — отдельные проекты со своими лицензиями; ТЯГА их не содержит, а скачивает с их официальных страниц.
+[MIT](LICENSE). yt-dlp, ffmpeg and Deno are separate projects with their own licenses; TYAGA doesn't include them, it downloads them from their official pages.

@@ -1,12 +1,12 @@
-// ТЯГА — скачивание видео и звука с YouTube через yt-dlp, с интерфейсом в браузере.
+// ТЯГА (TYAGA) downloads video and audio from YouTube with yt-dlp, through a page in your browser.
 //
-// Как это работает: программа поднимает маленький веб-сервер у тебя на компьютере
-// и открывает страницу в браузере. Страница отправляет ссылки серверу, сервер по одной
-// запускает yt-dlp, читает его вывод, а страница раз в 0,7 с спрашивает, как дела.
-// Закрыл окно консоли — сервер выключился.
+// How it works: the program starts a tiny web server on your computer and opens a page
+// in the browser. The page sends links to the server, the server runs yt-dlp for them one
+// at a time and reads its output, and the page asks for progress every 0.7 s.
+// Close the console window and the server stops.
 //
-// По умолчанию сервер слышит только этот компьютер. Кнопка «Телефон» на странице
-// открывает доступ из домашней сети по короткому коду — тогда можно качать с телефона.
+// By default only this computer can reach the server. The "Phone" button on the page opens
+// access from the home network with a short code, so you can download from your phone.
 package main
 
 import (
@@ -31,24 +31,24 @@ import (
 //go:embed index.html
 var page []byte
 
-// version подставляется при сборке релиза (см. .github/workflows/release.yml).
+// version is set when a release is built (see .github/workflows/release.yml).
 var version = "dev"
 
 var (
-	appDir      string // папка, где лежит программа
-	binDir      string // сюда скачиваются yt-dlp, ffmpeg, Deno
-	cookiesFile string // необязательный youtube-cookies.txt рядом с программой
-	outDir      string // куда складываются загрузки
+	appDir      string // folder the program lives in
+	binDir      string // yt-dlp, ffmpeg and Deno get downloaded here
+	cookiesFile string // optional youtube-cookies.txt next to the program
+	outDir      string // where downloads are saved
 )
 
-// lanPort — постоянный порт для телефона, чтобы адрес не менялся от запуска к запуску.
+// lanPort is a fixed port for the phone, so the address stays the same between runs.
 const lanPort = 8765
 
 func main() {
 	consoleUTF8()
 	home, _ := os.UserHomeDir()
-	out := flag.String("out", filepath.Join(home, "Downloads", "YouTube"), "папка для загрузок")
-	noBrowser := flag.Bool("no-browser", false, "не открывать браузер при запуске")
+	out := flag.String("out", filepath.Join(home, "Downloads", "YouTube"), "folder for downloads")
+	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
 	flag.Parse()
 
 	appDir = programDir()
@@ -56,17 +56,17 @@ func main() {
 	cookiesFile = filepath.Join(appDir, "youtube-cookies.txt")
 	outDir = *out
 
-	// Локальный сервер: только 127.0.0.1, свободный порт выдаёт система.
+	// Local server: 127.0.0.1 only, the OS picks a free port.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		fail("Не получилось запустить сервер: " + err.Error())
+		fail("Could not start the server: " + err.Error())
 	}
 	localToken := randomToken()
 	address := fmt.Sprintf("http://%s/?t=%s", ln.Addr(), localToken)
 
-	fmt.Println("ТЯГА " + version + " работает. Файлы сохраняются в " + outDir)
-	fmt.Println("Если браузер не открылся сам: " + address)
-	fmt.Println("Чтобы выключить, закройте это окно.")
+	fmt.Println("TYAGA " + version + " is running. Files are saved to " + outDir)
+	fmt.Println("If the browser didn't open: " + address)
+	fmt.Println("Close this window to quit.")
 	fmt.Println()
 
 	go setupTools()
@@ -76,7 +76,8 @@ func main() {
 	fail(http.Serve(ln, handler(false, func() string { return localToken })).Error())
 }
 
-// programDir — папка с exe. При «go run» exe лежит во временной папке, тогда берём текущую.
+// programDir is the folder with the exe. Under "go run" the exe sits in a temp folder,
+// so the current folder is used instead.
 func programDir() string {
 	exe, err := os.Executable()
 	if err == nil {
@@ -92,7 +93,7 @@ func programDir() string {
 
 func fail(msg string) {
 	fmt.Println(msg)
-	fmt.Println("Нажмите Enter, чтобы закрыть.")
+	fmt.Println("Press Enter to close.")
 	fmt.Scanln()
 	os.Exit(1)
 }
@@ -104,18 +105,18 @@ func randomToken() string {
 }
 
 // ---------------------------------------------------------------------------
-//  Доступ с телефона
+//  Phone access
 // ---------------------------------------------------------------------------
 
 var lan struct {
 	sync.Mutex
 	srv      *http.Server
-	code     string // короткий код вместо длинного токена: его удобно набрать на телефоне
+	code     string // a short code instead of the long token: easy to type on a phone
 	url      string
-	failures int // неверные коды подряд: после 20 доступ закрывается сам
+	failures int // wrong codes: after 20 the access turns itself off
 }
 
-// shortCode — 6 символов без похожих друг на друга (нет 0/o, 1/l/i).
+// shortCode is 6 characters without look-alikes (no 0/o, 1/l/i).
 func shortCode() string {
 	const alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
 	b := make([]byte, 6)
@@ -126,8 +127,8 @@ func shortCode() string {
 	return string(b)
 }
 
-// lanIP — адрес этого компьютера в домашней сети. UDP-«соединение» ничего не отправляет,
-// просто спрашивает систему, через какой адрес она пошла бы наружу.
+// lanIP is this computer's address in the home network. The UDP "connection" sends nothing,
+// it just asks the OS which address it would use to go out.
 func lanIP() string {
 	if c, err := net.Dial("udp", "192.168.0.1:9"); err == nil {
 		defer c.Close()
@@ -151,7 +152,7 @@ func setLAN(on bool) error {
 		if lan.srv != nil {
 			lan.srv.Close()
 			lan.srv, lan.code, lan.url = nil, "", ""
-			fmt.Println("Доступ с телефона выключен.")
+			fmt.Println("Phone access is off.")
 		}
 		return nil
 	}
@@ -160,11 +161,11 @@ func setLAN(on bool) error {
 	}
 	ip := lanIP()
 	if ip == "" {
-		return errors.New("компьютер не подключён к сети")
+		return errors.New("this computer is not connected to a network")
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", lanPort))
 	if err != nil {
-		ln, err = net.Listen("tcp", ":0") // постоянный порт занят — берём любой
+		ln, err = net.Listen("tcp", ":0") // the fixed port is busy, take any
 		if err != nil {
 			return err
 		}
@@ -175,7 +176,7 @@ func setLAN(on bool) error {
 	code := lan.code
 	lan.srv = &http.Server{Handler: handler(true, func() string { return code })}
 	go lan.srv.Serve(ln)
-	fmt.Println("Доступ с телефона включён: " + lan.url)
+	fmt.Println("Phone access is on: " + lan.url)
 	return nil
 }
 
@@ -185,23 +186,23 @@ func lanState() (on bool, link string) {
 	return lan.srv != nil, lan.url
 }
 
-// lanFailure считает неверные коды. Перебирать код бесконечно не получится.
+// lanFailure counts wrong codes, so nobody can guess the code forever.
 func lanFailure() {
 	lan.Lock()
 	lan.failures++
 	tooMany := lan.failures >= 20
 	lan.Unlock()
 	if tooMany {
-		fmt.Println("Слишком много неверных кодов с других устройств.")
+		fmt.Println("Too many wrong codes from other devices.")
 		go setLAN(false)
 	}
 }
 
 // ---------------------------------------------------------------------------
-//  Сервер
+//  Server
 // ---------------------------------------------------------------------------
 
-// handler — сервер для одного входа: локального (этот компьютер) или сетевого (телефон).
+// handler serves one entrance: local (this computer) or network (the phone).
 func handler(remote bool, token func() string) http.Handler {
 	writeJSON := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Content-Type", "application/json")
@@ -209,7 +210,7 @@ func handler(remote bool, token func() string) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Саму страницу отдаём всем: в ней нет ничего секретного, токен приходит в адресе.
+		// The page itself is served to anyone: there is nothing secret in it, the token comes in the URL.
 		if r.URL.Path == "/" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
@@ -217,13 +218,13 @@ func handler(remote bool, token func() string) http.Handler {
 			return
 		}
 
-		if !strings.HasPrefix(r.URL.Path, "/api/") { // favicon и прочее — не считаем за попытку взлома
+		if !strings.HasPrefix(r.URL.Path, "/api/") { // favicon and such don't count as break-in attempts
 			http.NotFound(w, r)
 			return
 		}
 
-		// Всё остальное — только со страницы, которая знает токен. Обычные запросы шлют его
-		// в заголовке (чужой сайт так не умеет), ссылки на скачивание файла — в адресе.
+		// Everything else only for the page that knows the token. Normal requests send it in a
+		// header (another website can't do that), file download links send it in the URL.
 		got := r.Header.Get("X-Token")
 		if r.URL.Path == "/api/file" {
 			got = r.URL.Query().Get("t")
@@ -247,7 +248,7 @@ func handler(remote bool, token func() string) http.Handler {
 					"version": version, "ready": ready, "setup": status, "problem": problem,
 					"out": outDir, "remote": remote, "jobs": jobs,
 				}
-				if !remote { // ссылку с кодом показываем только на самом компьютере
+				if !remote { // the link with the code is shown only on the computer itself
 					state["lan"] = map[string]any{"on": on, "url": link}
 				}
 				writeJSON(w, state)
@@ -284,13 +285,13 @@ func handler(remote bool, token func() string) http.Handler {
 		case "/api/add":
 			links := strings.Fields(body.Text)
 			if len(links) == 0 {
-				writeJSON(w, map[string]string{"error": "Добавьте хотя бы одну ссылку."})
+				writeJSON(w, map[string]string{"error": "Add at least one link."})
 				return
 			}
 			for _, l := range links {
 				u, err := url.Parse(l)
 				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-					writeJSON(w, map[string]string{"error": "Не похоже на ссылку: " + l})
+					writeJSON(w, map[string]string{"error": "This doesn't look like a link: " + l})
 					return
 				}
 			}
@@ -308,7 +309,7 @@ func handler(remote bool, token func() string) http.Handler {
 		case "/api/clear":
 			clearFinished()
 		case "/api/open":
-			if !remote { // открывать папку с телефона бессмысленно: она откроется на компьютере
+			if !remote { // opening the folder from a phone makes no sense: it would open on the computer
 				os.MkdirAll(outDir, 0o755)
 				openFolder(outDir)
 			}
@@ -318,7 +319,7 @@ func handler(remote bool, token func() string) http.Handler {
 				return
 			}
 			if err := setLAN(body.On); err != nil {
-				writeJSON(w, map[string]string{"error": "Не получилось включить доступ с телефона: " + err.Error()})
+				writeJSON(w, map[string]string{"error": "Could not turn on phone access: " + err.Error()})
 				return
 			}
 		default:
