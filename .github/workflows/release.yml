@@ -1,0 +1,52 @@
+# Сборка релиза: Actions → Release → Run workflow → ввести версию, например v1.0.0.
+# Собирает ТЯГУ под Windows, macOS и Linux и выкладывает архивы на страницу Releases.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Версия, например v1.0.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          if ! echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Версия должна выглядеть как v1.0.0"; exit 1
+          fi
+          mkdir -p dist
+          for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            name="tyaga-$VERSION-$os-$arch"
+            exe=tyaga; [ "$os" = windows ] && exe=tyaga.exe
+            mkdir -p "build/$name/tyaga"
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" -o "build/$name/tyaga/$exe" .
+            if [ "$os" = windows ]; then
+              (cd "build/$name" && zip -qr "../../dist/$name.zip" tyaga)
+            else
+              tar -C "build/$name" -czf "dist/$name.tar.gz" tyaga
+            fi
+          done
+          ls -la dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "ТЯГА $VERSION" --generate-notes

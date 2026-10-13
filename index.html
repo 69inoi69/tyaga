@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ТЯГА</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--fg:#1b1b1b;--dim:#777;--line:#e4e2dc;--acc:#d9480f;--ok:#2b8a3e;--err:#c92a2a}
+@media (prefers-color-scheme:dark){:root{--bg:#141414;--card:#1e1e1e;--fg:#eee;--dim:#8a8a8a;--line:#2e2e2e;--acc:#ff6b2c;--ok:#51cf66;--err:#ff6b6b}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
+main{max-width:720px;margin:40px auto;padding:0 16px}
+h1{font-size:20px;letter-spacing:.4em;margin:0 0 20px;font-weight:700;display:flex;align-items:baseline;gap:12px}
+h1 small{font-size:12px;letter-spacing:0;font-weight:400;color:var(--dim)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card+.card{margin-top:16px}
+.note{border-color:var(--acc);font-size:14px;white-space:pre-line}
+.note.err{border-color:var(--err);color:var(--err)}
+textarea{width:100%;min-height:84px;resize:vertical;background:transparent;color:inherit;border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit;outline-color:var(--acc)}
+.row{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-top:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:inherit;padding:7px 14px;cursor:pointer;font:inherit}
+.seg button.on{background:var(--acc);color:#fff}
+label{color:var(--dim);cursor:pointer;user-select:none}
+.go{margin-left:auto;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 20px;font:inherit;font-weight:600;cursor:pointer}
+.msg{color:var(--err);margin-top:8px;min-height:1.2em;font-size:14px}
+.job{padding:12px 0;border-bottom:1px solid var(--line)}
+.job:last-child{border-bottom:0}
+.top{display:flex;gap:10px;align-items:baseline}
+.name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{font-size:13px;color:var(--dim);white-space:nowrap}
+.st.done{color:var(--ok)}.st.error{color:var(--err)}
+.bar{height:4px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);transition:width .3s}
+.sub{font-size:12px;color:var(--dim);margin-top:4px;word-break:break-word}
+.sub.err{color:var(--err)}
+.sub a{color:var(--acc);display:block;margin-top:2px}
+.x{border:0;background:none;color:var(--dim);cursor:pointer;font-size:18px;line-height:1;padding:0 2px}
+.foot{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.foot button{background:none;border:0;color:var(--dim);cursor:pointer;font:inherit;padding:0}
+.foot button:hover{color:var(--fg)}
+.foot .right{margin-left:auto}
+.phone{margin-top:12px;font-size:14px;color:var(--dim)}
+.phone code{display:block;margin:6px 0;font-size:17px;color:var(--fg);word-break:break-all;user-select:all}
+.empty{color:var(--dim)}
+</style></head><body><main>
+<h1>ТЯГА <small id="ver"></small></h1>
+
+<div class="card note" id="setup" hidden></div>
+
+<div class="card">
+  <textarea id="links" placeholder="Ссылки на YouTube — одна или несколько, через пробел или с новой строки.&#10;Enter — скачать, Shift+Enter — новая строка."></textarea>
+  <div class="row">
+    <div class="seg" id="mode"><button data-v="video" class="on">Видео</button><button data-v="audio">Аудио</button></div>
+    <div class="seg" id="format" data-for="audio" hidden>
+      <button data-v="m4a" class="on" title="Оригинальная дорожка YouTube, без перекодирования">M4A</button>
+      <button data-v="mp3" title="Перекодируется в максимальном качестве, для любой техники">MP3</button>
+    </div>
+    <label><input type="checkbox" id="playlist"> весь плейлист</label>
+    <label data-for="audio" hidden><input type="checkbox" id="split" checked> нарезать по главам</label>
+    <label data-for="video" title="H.264 + AAC — откроется в DaVinci Resolve и любом плеере"><input type="checkbox" id="edit"> для монтажа</label>
+    <button class="go" id="go">Скачать</button>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="card">
+  <div id="list"></div>
+  <div class="foot">
+    <button id="open" data-local>Открыть папку</button>
+    <button id="clear">Убрать завершённые</button>
+    <button id="lan" class="right" data-local>Телефон: выкл</button>
+  </div>
+  <div class="phone" id="phone" hidden>
+    Открой на телефоне (он должен быть в той же Wi-Fi сети):
+    <code id="phoneUrl"></code>
+    Готовые файлы можно будет скачать прямо на телефон. Если не открывается — разреши ТЯГУ в брандмауэре Windows.
+  </div>
+</div>
+
+</main><script>
+var TOKEN = new URLSearchParams(location.search).get('t');
+var LABEL = { queued: 'в очереди', running: 'загрузка', done: 'готово', error: 'ошибка', cancelled: 'отменено' };
+var state = {}, lastList = '', OFFLINE = 'ТЯГА не отвечает. Запустите программу снова.';
+
+function $(id) { return document.getElementById(id); }
+
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// Запрос к серверу: без тела — GET, с телом — POST.
+function api(path, body) {
+  return fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'x-token': TOKEN, 'content-type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  });
+}
+
+// Переключатель из нескольких кнопок: возвращает функцию, которая отдаёт выбранное значение.
+function segmented(id, onChange) {
+  var value = $(id).querySelector('.on').dataset.v;
+  $(id).querySelectorAll('button').forEach(function (b) {
+    b.onclick = function () {
+      value = b.dataset.v;
+      $(id).querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      if (onChange) onChange(value);
+    };
+  });
+  return function () { return value; };
+}
+
+// Элементы с data-for="audio" / "video" видны только в своём режиме.
+var mode = segmented('mode', function (m) {
+  document.querySelectorAll('[data-for]').forEach(function (e) { e.hidden = e.dataset.for !== m; });
+});
+var format = segmented('format');
+
+function add() {
+  var text = $('links').value.trim();
+  if (!text) return;
+  api('/api/add', {
+    text: text, mode: mode(), format: format(),
+    playlist: $('playlist').checked, split: $('split').checked, edit: $('edit').checked,
+  }).then(function (r) {
+    $('msg').textContent = r.error || '';
+    if (!r.error) $('links').value = '';
+    refresh();
+  });
+}
+
+$('go').onclick = add;
+$('links').onkeydown = function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add(); } };
+$('open').onclick = function () { api('/api/open', {}); };
+$('clear').onclick = function () { api('/api/clear', {}).then(refresh); };
+$('lan').onclick = function () {
+  api('/api/lan', { on: !(state.lan && state.lan.on) }).then(function (r) {
+    $('msg').textContent = r.error || '';
+    refresh();
+  });
+};
+
+function statusText(j) {
+  // Файл скачан на 100%, но yt-dlp ещё работает: перекодирует, склеивает или вшивает обложку.
+  var s = j.status === 'running' && j.progress >= 100 ? 'обработка' : LABEL[j.status];
+  if (j.status === 'queued' && !state.ready) s = 'ждёт подготовки';
+  return j.mode === 'audio' ? '♪ ' + j.format.toUpperCase() + ' · ' + s : s;
+}
+
+function render() {
+  $('ver').textContent = state.version || '';
+
+  // Подготовка: скачивание yt-dlp / ffmpeg / Deno при первом запуске, или что-то не нашлось.
+  var note = state.setup || state.problem || '';
+  $('setup').hidden = !note;
+  $('setup').textContent = note;
+  $('setup').classList.toggle('err', !state.setup && !!state.problem);
+
+  // С телефона нельзя открыть папку на компьютере и включать/выключать доступ.
+  document.querySelectorAll('[data-local]').forEach(function (e) { e.hidden = state.remote; });
+  var lan = state.lan || {};
+  $('lan').textContent = lan.on ? 'Телефон: вкл' : 'Телефон: выкл';
+  $('phone').hidden = !lan.on;
+  $('phoneUrl').textContent = lan.url || '';
+
+  // Список перерисовываем, только если в нём что-то поменялось: иначе ссылка
+  // или крестик могут исчезнуть прямо под пальцем.
+  var list = $('list'), jobs = state.jobs || [];
+  var snapshot = JSON.stringify([jobs, state.ready, state.remote]);
+  if (snapshot === lastList) return;
+  lastList = snapshot;
+  list.innerHTML = '';
+  if (!jobs.length) { list.append(el('div', 'empty', 'Загрузок пока нет.')); return; }
+
+  jobs.slice().reverse().forEach(function (j) { // новые сверху
+    var row = el('div', 'job'), top = el('div', 'top');
+    top.append(el('span', 'name', j.title || j.url), el('span', 'st ' + j.status, statusText(j)));
+    if (j.status === 'queued' || j.status === 'running') {
+      var x = el('button', 'x', '×');
+      x.title = 'Отменить';
+      x.onclick = function () { api('/api/cancel', { id: j.id }).then(refresh); };
+      top.append(x);
+    }
+    row.append(top);
+
+    if (j.status === 'running') {
+      var bar = el('div', 'bar'), fill = el('i');
+      fill.style.width = j.progress + '%';
+      bar.append(fill);
+      var details = [j.progress.toFixed(1) + '%', j.speed, j.eta && ('осталось ' + j.eta)];
+      row.append(bar, el('div', 'sub', details.filter(Boolean).join(' · ')));
+    }
+    if (j.status === 'error' && j.error) row.append(el('div', 'sub err', j.error));
+
+    // На телефоне — ссылки, чтобы забрать готовые файлы к себе.
+    if (state.remote && j.status === 'done' && j.files.length) {
+      var files = el('div', 'sub');
+      j.files.forEach(function (name, n) {
+        var a = el('a', null, '↓ ' + name);
+        a.href = '/api/file?id=' + j.id + '&n=' + n + '&t=' + encodeURIComponent(TOKEN);
+        a.download = name;
+        files.append(a);
+      });
+      row.append(files);
+    }
+    list.append(row);
+  });
+}
+
+function refresh() {
+  api('/api/state')
+    .then(function (s) {
+      state = s;
+      if ($('msg').textContent === OFFLINE) $('msg').textContent = '';
+      render();
+    })
+    .catch(function () { $('msg').textContent = OFFLINE; });
+}
+
+refresh();
+setInterval(refresh, 700);
+</script></body></html>
