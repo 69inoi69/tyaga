@@ -1,0 +1,12 @@
+# Программы, которые ТЯГА скачивает сама
+bin/
+*.part
+
+# Куки YouTube — это доступ к аккаунту, в репозиторий им нельзя
+youtube-cookies.txt
+*cookies*.txt
+
+# Собранные программы
+tyaga
+tyaga.exe
+dist/
