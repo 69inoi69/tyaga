@@ -1,12 +1,12 @@
 package main
 
-// Поиск и автоскачивание программ, без которых ТЯГА не работает:
-//   yt-dlp — сама загрузка;
-//   ffmpeg — склейка видео и звука, перекодирование, обложки;
-//   Deno   — yt-dlp выполняет им JavaScript YouTube.
+// Finding and auto-downloading the programs TYAGA can't work without:
+//   yt-dlp — the downloading itself;
+//   ffmpeg — merging video and audio, converting, covers;
+//   Deno   — yt-dlp uses it to run YouTube's JavaScript.
 //
-// Сначала ищем в папке bin рядом с программой, потом в PATH.
-// Чего нет — скачиваем в bin с официальных страниц релизов на GitHub.
+// First look in the bin folder next to the program, then in PATH.
+// Whatever is missing gets downloaded into bin from the official GitHub release pages.
 
 import (
 	"archive/zip"
@@ -25,9 +25,9 @@ type toolSet struct {
 	ytdlp, ffmpeg, deno string
 
 	mu     sync.Mutex
-	status string // что сейчас происходит (для страницы)
-	err    string // что пошло не так
-	ok     bool   // всё на месте, можно качать
+	status string // what's happening right now (for the page)
+	err    string // what went wrong
+	ok     bool   // everything is in place, downloads can start
 }
 
 var tools toolSet
@@ -60,7 +60,7 @@ func exeName(name string) string {
 	return name
 }
 
-// find ищет программу в bin, потом в PATH.
+// find looks for a program in bin, then in PATH.
 func find(name string) string {
 	local := filepath.Join(binDir, exeName(name))
 	if fileExists(local) {
@@ -74,11 +74,11 @@ func find(name string) string {
 	return ""
 }
 
-// asset — откуда скачивать программу под эту систему.
-// zipped: в архиве лежит нужный файл (и, возможно, ещё что-то), его достаём по имени.
+// asset is where to download a program for this system from.
+// zipped: the archive contains the needed file (and maybe more), it's extracted by name.
 type asset struct {
 	url    string
-	zipped []string // какие файлы достать из zip; пусто — скачивается сам файл
+	zipped []string // which files to extract from the zip; empty means the download is the file itself
 }
 
 func ytdlpAsset() (asset, bool) {
@@ -112,8 +112,8 @@ func denoAsset() (asset, bool) {
 	return asset{url: base + file, zipped: []string{exeName("deno")}}, true
 }
 
-// ffmpeg скачивается автоматически только на Windows: сборки для Linux упакованы
-// в tar.xz, а на Linux и Mac ffmpeg проще поставить менеджером пакетов.
+// ffmpeg is downloaded automatically only on Windows: the Linux builds come as tar.xz,
+// and on Linux and Mac it's easier to install ffmpeg with a package manager.
 func ffmpegAsset() (asset, bool) {
 	base := "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/"
 	switch runtime.GOOS + "/" + runtime.GOARCH {
@@ -125,18 +125,18 @@ func ffmpegAsset() (asset, bool) {
 	return asset{}, false
 }
 
-// installHint — что сказать человеку, если программу не удалось достать.
+// installHint is what to tell the user if a program couldn't be obtained.
 func installHint(name string) string {
 	switch runtime.GOOS {
 	case "darwin":
-		return "Установите: brew install " + name
+		return "Install it: brew install " + name
 	case "linux":
-		return "Установите через менеджер пакетов, например: sudo apt install " + name
+		return "Install it with your package manager, e.g.: sudo apt install " + name
 	}
-	return "Скачайте " + name + " вручную и положите в папку bin рядом с программой."
+	return "Download " + name + " manually and put it into the bin folder next to the program."
 }
 
-// setupTools находит или скачивает всё нужное. Работает в фоне, пока страница уже открыта.
+// setupTools finds or downloads everything needed. Runs in the background while the page is already open.
 func setupTools() {
 	need := []struct {
 		name  string
@@ -152,10 +152,10 @@ func setupTools() {
 		path := find(n.name)
 		if path == "" {
 			if a, ok := n.asset(); !ok {
-				problems = append(problems, "Не найден "+n.name+". "+installHint(n.name))
+				problems = append(problems, n.name+" not found. "+installHint(n.name))
 			} else if err := download(n.name, a); err != nil {
-				fmt.Println("Ошибка при скачивании "+n.name+":", err)
-				problems = append(problems, "Не удалось скачать "+n.name+". Проверьте интернет и перезапустите ТЯГУ. "+installHint(n.name))
+				fmt.Println("Error downloading "+n.name+":", err)
+				problems = append(problems, "Could not download "+n.name+". Check your internet and restart TYAGA. "+installHint(n.name))
 			} else {
 				path = find(n.name)
 			}
@@ -163,10 +163,10 @@ func setupTools() {
 		*n.dst = path
 	}
 
-	// Свою копию yt-dlp обновляем при каждом запуске: YouTube часто что-то меняет,
-	// и старый yt-dlp перестаёт качать. Чужую (из PATH) не трогаем.
+	// Our own copy of yt-dlp is updated on every start: YouTube changes things often,
+	// and an old yt-dlp stops working. A system one (from PATH) is left alone.
 	if strings.HasPrefix(tools.ytdlp, binDir) {
-		tools.setStatus("Проверяю обновления yt-dlp…")
+		tools.setStatus("Checking for yt-dlp updates…")
 		cmd := exec.Command(tools.ytdlp, "-U")
 		hideWindow(cmd)
 		cmd.Run()
@@ -175,15 +175,15 @@ func setupTools() {
 	tools.mu.Lock()
 	tools.status = ""
 	tools.err = strings.Join(problems, "\n")
-	tools.ok = tools.ytdlp != "" && tools.ffmpeg != "" // без Deno некоторые ролики не скачаются, но остальное работает
+	tools.ok = tools.ytdlp != "" && tools.ffmpeg != "" // without Deno some videos won't download, but the rest works
 	tools.mu.Unlock()
 	if tools.err != "" {
 		fmt.Println(tools.err)
 	}
-	pump() // если ссылки добавили, пока шла подготовка
+	pump() // in case links were added during setup
 }
 
-// download скачивает программу в bin.
+// download downloads a program into bin.
 func download(name string, a asset) error {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
@@ -202,7 +202,7 @@ func download(name string, a asset) error {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		tmp.Close()
-		return fmt.Errorf("сервер ответил %s", resp.Status)
+		return fmt.Errorf("server replied %s", resp.Status)
 	}
 	_, err = io.Copy(tmp, &progressReader{r: resp.Body, total: resp.ContentLength, name: name})
 	tmp.Close()
@@ -220,7 +220,7 @@ func download(name string, a asset) error {
 	return unzipFiles(tmp.Name(), a.zipped)
 }
 
-// unzipFiles достаёт из архива нужные файлы (где бы внутри они ни лежали) прямо в bin.
+// unzipFiles extracts the needed files from the archive (wherever they are inside) right into bin.
 func unzipFiles(archive string, want []string) error {
 	zr, err := zip.OpenReader(archive)
 	if err != nil {
@@ -241,7 +241,7 @@ func unzipFiles(archive string, want []string) error {
 		}
 	}
 	if found == 0 {
-		return fmt.Errorf("в архиве нет %s", strings.Join(want, ", "))
+		return fmt.Errorf("the archive has no %s", strings.Join(want, ", "))
 	}
 	return nil
 }
@@ -263,7 +263,7 @@ func extract(f *zip.File, dst string) error {
 	return w.Close()
 }
 
-// progressReader показывает на странице и в консоли, сколько уже скачано.
+// progressReader shows on the page and in the console how much has been downloaded.
 type progressReader struct {
 	r           io.Reader
 	total, done int64
@@ -279,13 +279,13 @@ func (p *progressReader) Read(b []byte) (int, error) {
 		pct := p.done * 100 / p.total
 		if pct != p.lastPct {
 			p.lastPct = pct
-			tools.mu.Lock() // без печати в консоль на каждый процент
-			tools.status = fmt.Sprintf("Скачиваю %s… %d%% (%.0f из %.0f МБ)", p.name, pct, mb, float64(p.total)/1048576)
+			tools.mu.Lock() // no console print for every percent
+			tools.status = fmt.Sprintf("Downloading %s… %d%% (%.0f of %.0f MB)", p.name, pct, mb, float64(p.total)/1048576)
 			tools.mu.Unlock()
 		}
 	}
 	if err == io.EOF {
-		fmt.Printf("Скачан %s (%.0f МБ)\n", p.name, mb)
+		fmt.Printf("Downloaded %s (%.0f MB)\n", p.name, mb)
 	}
 	return n, err
 }

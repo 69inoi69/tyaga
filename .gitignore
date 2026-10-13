@@ -1,12 +1,12 @@
-# Программы, которые ТЯГА скачивает сама
+# Programs TYAGA downloads by itself
 bin/
 *.part
 
-# Куки YouTube — это доступ к аккаунту, в репозиторий им нельзя
+# YouTube cookies give access to your account: never commit them
 youtube-cookies.txt
 *cookies*.txt
 
-# Собранные программы
+# Built binaries
 tyaga
 tyaga.exe
 dist/

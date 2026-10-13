@@ -1,6 +1,6 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ТЯГА</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TYAGA</title>
 <link rel="icon" href="data:,">
 <style>
 :root{--bg:#f6f5f2;--card:#fff;--fg:#1b1b1b;--dim:#777;--line:#e4e2dc;--acc:#d9480f;--ok:#2b8a3e;--err:#c92a2a}
@@ -48,17 +48,17 @@ label{color:var(--dim);cursor:pointer;user-select:none}
 <div class="card note" id="setup" hidden></div>
 
 <div class="card">
-  <textarea id="links" placeholder="Ссылки на YouTube — одна или несколько, через пробел или с новой строки.&#10;Enter — скачать, Shift+Enter — новая строка."></textarea>
+  <textarea id="links" placeholder="YouTube links — one or more, separated by spaces or new lines.&#10;Enter — download, Shift+Enter — new line."></textarea>
   <div class="row">
-    <div class="seg" id="mode"><button data-v="video" class="on">Видео</button><button data-v="audio">Аудио</button></div>
+    <div class="seg" id="mode"><button data-v="video" class="on">Video</button><button data-v="audio">Audio</button></div>
     <div class="seg" id="format" data-for="audio" hidden>
-      <button data-v="m4a" class="on" title="Оригинальная дорожка YouTube, без перекодирования">M4A</button>
-      <button data-v="mp3" title="Перекодируется в максимальном качестве, для любой техники">MP3</button>
+      <button data-v="m4a" class="on" title="The original YouTube audio track, no re-encoding">M4A</button>
+      <button data-v="mp3" title="Re-encoded at the highest quality, plays on anything">MP3</button>
     </div>
-    <label><input type="checkbox" id="playlist"> весь плейлист</label>
-    <label data-for="audio" hidden><input type="checkbox" id="split" checked> нарезать по главам</label>
-    <label data-for="video" title="H.264 + AAC — откроется в DaVinci Resolve и любом плеере"><input type="checkbox" id="edit"> для монтажа</label>
-    <button class="go" id="go">Скачать</button>
+    <label><input type="checkbox" id="playlist"> whole playlist</label>
+    <label data-for="audio" hidden><input type="checkbox" id="split" checked> split by chapters</label>
+    <label data-for="video" title="H.264 + AAC — opens in DaVinci Resolve and any player"><input type="checkbox" id="edit"> for editing</label>
+    <button class="go" id="go">Download</button>
   </div>
   <div class="msg" id="msg"></div>
 </div>
@@ -66,21 +66,21 @@ label{color:var(--dim);cursor:pointer;user-select:none}
 <div class="card">
   <div id="list"></div>
   <div class="foot">
-    <button id="open" data-local>Открыть папку</button>
-    <button id="clear">Убрать завершённые</button>
-    <button id="lan" class="right" data-local>Телефон: выкл</button>
+    <button id="open" data-local>Open folder</button>
+    <button id="clear">Clear finished</button>
+    <button id="lan" class="right" data-local>Phone: off</button>
   </div>
   <div class="phone" id="phone" hidden>
-    Открой на телефоне (он должен быть в той же Wi-Fi сети):
+    Open this on your phone (it has to be on the same Wi-Fi):
     <code id="phoneUrl"></code>
-    Готовые файлы можно будет скачать прямо на телефон. Если не открывается — разреши ТЯГУ в брандмауэре Windows.
+    Finished files can be downloaded right to the phone. If it doesn't open, allow TYAGA in Windows Firewall.
   </div>
 </div>
 
 </main><script>
 var TOKEN = new URLSearchParams(location.search).get('t');
-var LABEL = { queued: 'в очереди', running: 'загрузка', done: 'готово', error: 'ошибка', cancelled: 'отменено' };
-var state = {}, lastList = '', OFFLINE = 'ТЯГА не отвечает. Запустите программу снова.';
+var LABEL = { queued: 'queued', running: 'downloading', done: 'done', error: 'error', cancelled: 'cancelled' };
+var state = {}, lastList = '', OFFLINE = 'TYAGA is not responding. Start the program again.';
 
 function $(id) { return document.getElementById(id); }
 
@@ -91,7 +91,7 @@ function el(tag, cls, text) {
   return e;
 }
 
-// Запрос к серверу: без тела — GET, с телом — POST.
+// Request to the server: no body — GET, with a body — POST.
 function api(path, body) {
   return fetch(path, {
     method: body ? 'POST' : 'GET',
@@ -103,7 +103,7 @@ function api(path, body) {
   });
 }
 
-// Переключатель из нескольких кнопок: возвращает функцию, которая отдаёт выбранное значение.
+// A switch made of several buttons: returns a function that gives the selected value.
 function segmented(id, onChange) {
   var value = $(id).querySelector('.on').dataset.v;
   $(id).querySelectorAll('button').forEach(function (b) {
@@ -116,7 +116,7 @@ function segmented(id, onChange) {
   return function () { return value; };
 }
 
-// Элементы с data-for="audio" / "video" видны только в своём режиме.
+// Elements with data-for="audio" / "video" are visible only in their mode.
 var mode = segmented('mode', function (m) {
   document.querySelectorAll('[data-for]').forEach(function (e) { e.hidden = e.dataset.for !== m; });
 });
@@ -147,43 +147,43 @@ $('lan').onclick = function () {
 };
 
 function statusText(j) {
-  // Файл скачан на 100%, но yt-dlp ещё работает: перекодирует, склеивает или вшивает обложку.
-  var s = j.status === 'running' && j.progress >= 100 ? 'обработка' : LABEL[j.status];
-  if (j.status === 'queued' && !state.ready) s = 'ждёт подготовки';
+  // The file is at 100%, but yt-dlp is still working: converting, merging or embedding the cover.
+  var s = j.status === 'running' && j.progress >= 100 ? 'processing' : LABEL[j.status];
+  if (j.status === 'queued' && !state.ready) s = 'waiting for setup';
   return j.mode === 'audio' ? '♪ ' + j.format.toUpperCase() + ' · ' + s : s;
 }
 
 function render() {
   $('ver').textContent = state.version || '';
 
-  // Подготовка: скачивание yt-dlp / ffmpeg / Deno при первом запуске, или что-то не нашлось.
+  // Setup: downloading yt-dlp / ffmpeg / Deno on first start, or something wasn't found.
   var note = state.setup || state.problem || '';
   $('setup').hidden = !note;
   $('setup').textContent = note;
   $('setup').classList.toggle('err', !state.setup && !!state.problem);
 
-  // С телефона нельзя открыть папку на компьютере и включать/выключать доступ.
+  // From a phone you can't open the folder on the computer or switch the access on/off.
   document.querySelectorAll('[data-local]').forEach(function (e) { e.hidden = state.remote; });
   var lan = state.lan || {};
-  $('lan').textContent = lan.on ? 'Телефон: вкл' : 'Телефон: выкл';
+  $('lan').textContent = lan.on ? 'Phone: on' : 'Phone: off';
   $('phone').hidden = !lan.on;
   $('phoneUrl').textContent = lan.url || '';
 
-  // Список перерисовываем, только если в нём что-то поменялось: иначе ссылка
-  // или крестик могут исчезнуть прямо под пальцем.
+  // Redraw the list only if something in it changed: otherwise a link
+  // or the × button could vanish right under your finger.
   var list = $('list'), jobs = state.jobs || [];
   var snapshot = JSON.stringify([jobs, state.ready, state.remote]);
   if (snapshot === lastList) return;
   lastList = snapshot;
   list.innerHTML = '';
-  if (!jobs.length) { list.append(el('div', 'empty', 'Загрузок пока нет.')); return; }
+  if (!jobs.length) { list.append(el('div', 'empty', 'No downloads yet.')); return; }
 
-  jobs.slice().reverse().forEach(function (j) { // новые сверху
+  jobs.slice().reverse().forEach(function (j) { // newest first
     var row = el('div', 'job'), top = el('div', 'top');
     top.append(el('span', 'name', j.title || j.url), el('span', 'st ' + j.status, statusText(j)));
     if (j.status === 'queued' || j.status === 'running') {
       var x = el('button', 'x', '×');
-      x.title = 'Отменить';
+      x.title = 'Cancel';
       x.onclick = function () { api('/api/cancel', { id: j.id }).then(refresh); };
       top.append(x);
     }
@@ -193,12 +193,12 @@ function render() {
       var bar = el('div', 'bar'), fill = el('i');
       fill.style.width = j.progress + '%';
       bar.append(fill);
-      var details = [j.progress.toFixed(1) + '%', j.speed, j.eta && ('осталось ' + j.eta)];
+      var details = [j.progress.toFixed(1) + '%', j.speed, j.eta && (j.eta + ' left')];
       row.append(bar, el('div', 'sub', details.filter(Boolean).join(' · ')));
     }
     if (j.status === 'error' && j.error) row.append(el('div', 'sub err', j.error));
 
-    // На телефоне — ссылки, чтобы забрать готовые файлы к себе.
+    // On a phone: links to take the finished files with you.
     if (state.remote && j.status === 'done' && j.files.length) {
       var files = el('div', 'sub');
       j.files.forEach(function (name, n) {

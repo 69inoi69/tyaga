@@ -2,7 +2,7 @@
 
 package main
 
-// То, что на Linux и macOS делается по-своему.
+// Things that work differently on Linux and macOS.
 
 import (
 	"os/exec"
@@ -10,12 +10,12 @@ import (
 	"syscall"
 )
 
-// hideWindow: отдельная группа процессов, чтобы потом остановить yt-dlp вместе с ffmpeg.
+// hideWindow puts the process into its own group, so yt-dlp can be stopped together with ffmpeg.
 func hideWindow(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// killTree останавливает всю группу процессов.
+// killTree stops the whole process group.
 func killTree(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
@@ -23,7 +23,7 @@ func killTree(cmd *exec.Cmd) {
 	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
-// openURL и openFolder открывают ссылку или папку в программе по умолчанию.
+// openURL and openFolder open a link or a folder in the default program.
 func openURL(url string)    { openWith(url) }
 func openFolder(dir string) { openWith(dir) }
 

@@ -1,7 +1,7 @@
 package main
 
-// Очередь загрузок: собирает команду для yt-dlp, запускает загрузки по одной,
-// читает вывод и подписывает треки, нарезанные по главам.
+// The download queue: builds the yt-dlp command, runs downloads one at a time,
+// reads the output and tags the tracks that were split by chapters.
 
 import (
 	"bufio"
@@ -18,28 +18,28 @@ import (
 	"sync"
 )
 
-// Job — одна загрузка = одна ссылка (ролик или целый плейлист).
+// Job is one download = one link (a video or a whole playlist).
 type Job struct {
 	ID       int      `json:"id"`
 	URL      string   `json:"url"`
-	Mode     string   `json:"mode"`     // "video" или "audio"
-	Playlist bool     `json:"playlist"` // качать весь плейлист, если ссылка на него указывает
-	Split    bool     `json:"split"`    // аудио: резать по главам на отдельные треки
-	Edit     bool     `json:"edit"`     // видео: H.264 + AAC для программ монтажа
-	Format   string   `json:"format"`   // аудио: "m4a" или "mp3"
+	Mode     string   `json:"mode"`     // "video" or "audio"
+	Playlist bool     `json:"playlist"` // download the whole playlist if the link points to one
+	Split    bool     `json:"split"`    // audio: split into separate tracks by chapters
+	Edit     bool     `json:"edit"`     // video: H.264 + AAC for video editors
+	Format   string   `json:"format"`   // audio: "m4a" or "mp3"
 	Status   string   `json:"status"`   // queued, running, done, error, cancelled
-	Title    string   `json:"title"`    // название текущего ролика, с номером если это плейлист
-	Progress float64  `json:"progress"` // 0–100 для текущего файла
+	Title    string   `json:"title"`    // title of the current video, numbered if it's a playlist
+	Progress float64  `json:"progress"` // 0–100 for the current file
 	Speed    string   `json:"speed"`
 	ETA      string   `json:"eta"`
 	Error    string   `json:"error"`
-	Files    []string `json:"files"` // имена готовых файлов (для скачивания на телефон)
+	Files    []string `json:"files"` // names of finished files (to download them to a phone)
 
-	paths  []string    // полные пути готовых файлов
-	splits []splitInfo // ролики, порезанные на главы
+	paths  []string    // full paths of finished files
+	splits []splitInfo // videos that were split by chapters
 }
 
-// splitInfo — то, что yt-dlp сообщает о ролике, порезанном по главам.
+// splitInfo is what yt-dlp reports about a video that was split by chapters.
 type splitInfo struct {
 	Filepath string `json:"filepath"`
 	Album    string `json:"album"`
@@ -50,41 +50,41 @@ type splitInfo struct {
 }
 
 var (
-	mu      sync.Mutex // защищает всё ниже
+	mu      sync.Mutex // guards everything below
 	jobs    = []*Job{}
 	nextID  = 1
-	running *exec.Cmd // текущий процесс yt-dlp; одновременно качается не больше одной загрузки
+	running *exec.Cmd // the current yt-dlp process; only one download runs at a time
 	current *Job
 )
 
-// Обложка трека: превью ролика обрезается по центру до квадрата. У музыки на YouTube
-// обложка альбома обычно стоит квадратом посреди кадра 16:9 — после обрезки остаётся ровно она.
+// Track cover: the video thumbnail is cropped to a centered square. On YouTube, music usually
+// has the album cover as a square in the middle of a 16:9 frame, so the crop leaves exactly that.
 //
-// Обрезка срабатывает только при конвертации, а превью, которое уже в JPEG, yt-dlp
-// не конвертирует. Поэтому правило «jpg>png/jpg»: JPEG → PNG, всё остальное (WebP) → JPEG.
+// The crop only happens during conversion, and yt-dlp doesn't convert a thumbnail that is
+// already JPEG. Hence the rule "jpg>png/jpg": JPEG → PNG, everything else (WebP) → JPEG.
 const (
 	coverFormat = "jpg>png/jpg"
 	squareCover = `ThumbnailsConvertor+FFmpeg_o:-vf crop="'if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'"`
 )
 
-// audioTags — аккуратные теги для музыки. Правила выполняются по порядку, до скачивания,
-// так что очищенные название и исполнитель попадают и в теги, и в имя файла.
+// audioTags are clean tags for music. The rules run in order, before the download,
+// so the cleaned title and artist end up both in the tags and in the file name.
 var audioTags = []string{
-	// Название: у треков с YouTube Music есть точное поле «трек» — оно лучше заголовка ролика.
+	// Title: YouTube Music tracks have an exact "track" field, better than the video title.
 	"--parse-metadata", "%(track,title)s:%(title)s",
-	// Исполнитель: из данных YouTube Music, иначе — название канала.
-	// «|» в конце: если не нашлось ничего, исполнитель пустой, а не буквальное «NA».
+	// Artist: from YouTube Music data, otherwise the channel name.
+	// The trailing "|": if nothing is found, the artist is empty instead of a literal "NA".
 	"--parse-metadata", "%(artist,creator,uploader|)s:%(artist)s",
-	// «Исполнитель - Песня» в названии → исполнитель отдельно, песня отдельно.
+	// "Artist - Song" in the title → artist and song separately.
 	"--parse-metadata", `title:(?P<artist>.+?) [-–—] (?P<title>.+)`,
-	// Хвосты у названий каналов: «Кто-то - Topic», «КтоToVEVO».
+	// Channel name tails: "Someone - Topic", "SomeoneVEVO".
 	"--replace-in-metadata", "artist", `(?i)\s*(- topic|vevo)$`, "",
-	// Мусор в скобках: (Official Video), [Lyrics], (Official Audio), (HD)…
+	// Junk in brackets: (Official Video), [Lyrics], (Official Audio), (HD)…
 	"--replace-in-metadata", "title",
 	`(?i)\s*[(\[][^)\]]*\b(official|lyrics?|audio|video|visuali[sz]er|mv|hd|hq|4k)\b[^)\]]*[)\]]`, "",
-	// Год: дата релиза, если YouTube её знает, иначе год загрузки.
+	// Year: the release date if YouTube knows it, otherwise the upload year.
 	"--parse-metadata", `%(release_year,upload_date)s:(?P<meta_date>\d{4})`,
-	// Убрать описание ролика и ссылку на YouTube из тегов.
+	// Drop the video description and the YouTube link from the tags.
 	"--parse-metadata", ":(?P<meta_description>)",
 	"--parse-metadata", ":(?P<meta_synopsis>)",
 	"--parse-metadata", ":(?P<meta_purl>)",
@@ -93,35 +93,35 @@ var audioTags = []string{
 
 var listRe = regexp.MustCompile(`[?&]list=`)
 
-// buildArgs собирает командную строку yt-dlp для загрузки.
+// buildArgs builds the yt-dlp command line for a download.
 func buildArgs(j *Job) []string {
 	args := []string{
-		// Не трогать чужие настройки yt-dlp на компьютере — только то, что задано здесь.
+		// Ignore any yt-dlp settings on the computer, use only what's set here.
 		"--ignore-config", "--no-plugin-dirs",
-		// Не перезаписывать готовое, докачивать недокачанное.
+		// Don't overwrite finished files, resume unfinished ones.
 		"--no-overwrites", "--continue",
-		// Имена файлов, допустимые в Windows, и не длиннее 180 символов.
+		// File names that are valid on Windows and no longer than 180 characters.
 		"--windows-filenames", "--trim-filenames", "180",
-		// Вывод, удобный для разбора: без цвета, каждое обновление с новой строки.
+		// Output that's easy to parse: no colors, every update on a new line.
 		"--no-colors", "--newline", "--progress", "--progress-delta", "0.5", "--encoding", "utf-8",
 		"--socket-timeout", "25", "--retries", "3",
 		"--embed-metadata", "--embed-chapters",
-		// Прямые эфиры пропускать: они бесконечные.
+		// Skip live streams: they never end.
 		"--match-filter", "!is_live",
 		"--ffmpeg-location", filepath.Dir(tools.ffmpeg),
-		// Служебные строки, которые разбирает onLine():
+		// Service lines that onLine() parses:
 		"--print", "before_dl:ITEM|%(playlist_index|)s|%(n_entries|)s|%(title)s",
 		"--print", "after_move:FILE|%(filepath)s",
 		"--progress-template",
 		"download:PROG|%(progress.downloaded_bytes)s|%(progress.total_bytes,progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s",
 		"-P", outDir,
 	}
-	// YouTube требует выполнять свой JavaScript; для этого yt-dlp нужен Deno.
+	// YouTube requires running its JavaScript; yt-dlp needs Deno for that.
 	if tools.deno != "" {
 		args = append(args, "--js-runtimes", "deno:"+tools.deno)
 	}
 
-	// Плейлист — в отдельную папку, файлы с номерами. Одиночный ролик — прямо в папку загрузок.
+	// A playlist goes into its own folder with numbered files. A single video goes straight to the downloads folder.
 	isList := j.Playlist && listRe.MatchString(j.URL)
 	if isList {
 		args = append(args, "--yes-playlist")
@@ -130,7 +130,7 @@ func buildArgs(j *Job) []string {
 	}
 	single := "%(title)s"
 	if j.Mode == "audio" {
-		single = "%(artist,uploader&{} - |)s%(title)s" // «Исполнитель - Песня»; без исполнителя — просто «Песня»
+		single = "%(artist,uploader&{} - |)s%(title)s" // "Artist - Song"; without an artist just "Song"
 	}
 	name := single
 	if isList {
@@ -139,13 +139,13 @@ func buildArgs(j *Job) []string {
 	args = append(args, "-o", name+".%(ext)s")
 
 	if j.Mode == "video" {
-		// Лучшее видео + лучший звук в MP4. «Для монтажа» — предпочесть H.264 и AAC.
+		// Best video + best audio in MP4. "For editing" prefers H.264 and AAC.
 		if j.Edit {
 			args = append(args, "-S", "vcodec:h264,res,acodec:aac")
 		}
 		args = append(args, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "--remux-video", "mp4")
 	} else {
-		// Для M4A сразу брать дорожку AAC — тогда её не придётся перекодировать.
+		// For M4A take the AAC track right away, so it doesn't need re-encoding.
 		if j.Format == "m4a" {
 			args = append(args, "-f", "ba[ext=m4a]/ba/b")
 		} else {
@@ -154,11 +154,11 @@ func buildArgs(j *Job) []string {
 		args = append(args, "-x", "--audio-format", j.Format, "--audio-quality", "0")
 		args = append(args, "--embed-thumbnail", "--convert-thumbnails", coverFormat, "--ppa", squareCover)
 		args = append(args, audioTags...)
-		if isList { // номер трека = номер в плейлисте
+		if isList { // track number = position in the playlist
 			args = append(args, "--parse-metadata", "%(playlist_index)s:%(track_number)s")
 		}
 		if j.Split {
-			// Альбом одним роликом с главами → рядом появляется папка с отдельными треками.
+			// A whole album as one video with chapters → a folder with separate tracks appears next to it.
 			args = append(args, "--split-chapters",
 				"-o", "chapter:"+name+"/%(section_number)02d - %(section_title)s.%(ext)s",
 				"--print", "after_move:DONE|%(.{filepath,album,title,chapters})j")
@@ -168,10 +168,10 @@ func buildArgs(j *Job) []string {
 	if fileExists(cookiesFile) {
 		args = append(args, "--cookies", cookiesFile)
 	}
-	return append(args, "--", j.URL) // «--» — чтобы ссылку нельзя было принять за параметр
+	return append(args, "--", j.URL) // "--" so the link can't be taken for an option
 }
 
-// clock: секунды → «м:сс».
+// clock: seconds → "m:ss".
 func clock(sec float64) string {
 	s := int(sec)
 	return fmt.Sprintf("%d:%02d", s/60, s%60)
@@ -182,18 +182,18 @@ var (
 	tooManyRe = regexp.MustCompile(`(?i)HTTP Error 429|too many requests`)
 )
 
-// explain переводит самые частые ошибки yt-dlp на человеческий язык.
+// explain turns the most common yt-dlp errors into plain language.
 func explain(line string) string {
 	switch {
 	case signInRe.MatchString(line):
-		return "YouTube требует авторизацию. Положите свежий файл youtube-cookies.txt рядом с программой."
+		return "YouTube wants you to sign in. Put a fresh youtube-cookies.txt next to the program."
 	case tooManyRe.MatchString(line):
-		return "YouTube временно ограничил запросы. Повторите попытку позже."
+		return "YouTube is limiting requests for now. Try again later."
 	}
 	return strings.TrimPrefix(line, "ERROR: ")
 }
 
-// num разбирает число из вывода yt-dlp. Неизвестные значения он пишет как «NA» → NaN.
+// num parses a number from yt-dlp output. Unknown values are printed as "NA" → NaN.
 func num(s string) float64 {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
@@ -202,11 +202,11 @@ func num(s string) float64 {
 	return f
 }
 
-// onLine разбирает одну строку вывода yt-dlp и обновляет загрузку. Вызывать под mu.
+// onLine parses one line of yt-dlp output and updates the download. Call with mu held.
 func onLine(j *Job, line string) {
 	switch {
 	case strings.HasPrefix(line, "ITEM|"):
-		// Начался новый ролик. Название может содержать «|», поэтому режем максимум на 3 части.
+		// A new video started. The title may contain "|", so split into at most 3 parts.
 		p := strings.SplitN(line[5:], "|", 3)
 		if len(p) < 3 {
 			return
@@ -227,7 +227,7 @@ func onLine(j *Job, line string) {
 		}
 		j.Speed, j.ETA = "", ""
 		if speed > 0 {
-			j.Speed = fmt.Sprintf("%.1f МБ/с", speed/1048576)
+			j.Speed = fmt.Sprintf("%.1f MB/s", speed/1048576)
 		}
 		if eta > 0 {
 			j.ETA = clock(eta)
@@ -246,7 +246,7 @@ func onLine(j *Job, line string) {
 	}
 }
 
-// addJobs ставит ссылки в очередь.
+// addJobs puts links into the queue.
 func addJobs(links []string, mode, format string, playlist, split, edit bool) {
 	mu.Lock()
 	for _, url := range links {
@@ -261,8 +261,8 @@ func addJobs(links []string, mode, format string, playlist, split, edit bool) {
 	pump()
 }
 
-// pump запускает следующую загрузку из очереди, если сейчас ничего не качается
-// и все нужные программы на месте.
+// pump starts the next download from the queue if nothing is downloading right now
+// and all the needed programs are in place.
 func pump() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -283,7 +283,7 @@ func pump() {
 	os.MkdirAll(outDir, 0o755)
 	j.Status = "running"
 	cmd := exec.Command(tools.ytdlp, buildArgs(j)...)
-	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1") // кириллица без кракозябр
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "PYTHONUTF8=1") // non-Latin titles without mojibake
 	hideWindow(cmd)
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
@@ -294,7 +294,7 @@ func pump() {
 	}
 	running, current = cmd, j
 
-	// Читаем и обычный вывод, и вывод ошибок — построчно.
+	// Read both normal output and error output, line by line.
 	var wg sync.WaitGroup
 	for _, r := range []io.Reader{stdout, stderr} {
 		wg.Add(1)
@@ -318,23 +318,23 @@ func pump() {
 		splits := j.splits
 		j.splits = nil
 		if j.Status == "running" {
-			j.Progress = 100 // на странице: «обработка»
+			j.Progress = 100 // the page shows "processing"
 		}
 		mu.Unlock()
 
-		// Подписать нарезанные треки, пока загрузка ещё числится активной.
+		// Tag the split tracks while the download still counts as active.
 		for _, s := range splits {
 			tagChapters(s)
 		}
 
 		mu.Lock()
-		if j.Status == "running" { // если загрузку отменили, статус уже «cancelled»
+		if j.Status == "running" { // if the download was cancelled, the status is already "cancelled"
 			if err == nil {
 				j.Status = "done"
 			} else {
 				j.Status = "error"
 				if j.Error == "" {
-					j.Error = "yt-dlp завершился с ошибкой: " + err.Error()
+					j.Error = "yt-dlp failed: " + err.Error()
 				}
 			}
 		}
@@ -344,8 +344,8 @@ func pump() {
 	}()
 }
 
-// cancelJob: из очереди просто убирает, текущую загрузку — останавливает.
-// Недокачанный файл остаётся и докачается, если ссылку добавить снова.
+// cancelJob removes a queued download, or stops the running one.
+// The unfinished file stays and resumes if the link is added again.
 func cancelJob(id int) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -353,13 +353,13 @@ func cancelJob(id int) {
 		if j.ID == id && (j.Status == "queued" || j.Status == "running") {
 			j.Status = "cancelled"
 			if current == j && running != nil {
-				killTree(running) // yt-dlp вместе с запущенным им ffmpeg
+				killTree(running) // yt-dlp together with the ffmpeg it started
 			}
 		}
 	}
 }
 
-// clearFinished убирает из списка всё, что уже не качается и не ждёт.
+// clearFinished removes everything that is no longer downloading or waiting.
 func clearFinished() {
 	mu.Lock()
 	defer mu.Unlock()
@@ -372,7 +372,7 @@ func clearFinished() {
 	jobs = kept
 }
 
-// jobFile возвращает полный путь готового файла — только из тех, что скачала сама программа.
+// jobFile returns the full path of a finished file — only files this program downloaded itself.
 func jobFile(id, n int) (string, bool) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -386,14 +386,14 @@ func jobFile(id, n int) (string, bool) {
 
 var chapterNumRe = regexp.MustCompile(`^\s*\d{1,3}\s*[.)\-–—:]\s*`)
 
-// tagChapters подписывает треки, нарезанные из одного ролика:
-// название = название главы, альбом = альбом (или название ролика), номер = «3/12».
-// Исполнитель, год и обложка остаются от исходного файла. Звук не перекодируется.
+// tagChapters tags the tracks split out of one video:
+// title = chapter title, album = album (or the video title), track = "3/12".
+// Artist, year and cover stay from the original file. The audio is not re-encoded.
 func tagChapters(info splitInfo) {
 	if info.Filepath == "" || len(info.Chapters) == 0 {
 		return
 	}
-	dir := strings.TrimSuffix(info.Filepath, filepath.Ext(info.Filepath)) // папка с треками = имя файла без расширения
+	dir := strings.TrimSuffix(info.Filepath, filepath.Ext(info.Filepath)) // tracks folder = file name without extension
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -416,20 +416,20 @@ func tagChapters(info splitInfo) {
 		if file == "" {
 			continue
 		}
-		// «01. Песня» / «1) Песня» в названии главы — номер и так есть в теге.
+		// "01. Song" / "1) Song" in a chapter title — the number is already in the tag.
 		title := strings.TrimSpace(chapterNumRe.ReplaceAllString(ch.Title, ""))
 
 		src := filepath.Join(dir, file)
-		tmp := filepath.Join(dir, "~"+file) // то же расширение — ffmpeg по нему выбирает формат
-		// Только звук и обложку (обложка — это «видео»-поток). В M4A после нарезки остаётся ещё
-		// служебная дорожка с главами, которую ffmpeg скопировать не может, — её не берём.
+		tmp := filepath.Join(dir, "~"+file) // same extension: ffmpeg picks the format by it
+		// Only audio and cover (the cover is a "video" stream). After splitting, M4A also keeps
+		// a chapter data stream that ffmpeg can't copy, so it's left out.
 		args := []string{"-y", "-hide_banner", "-loglevel", "error", "-i", src, "-map", "0:a", "-map", "0:v?", "-c", "copy",
 			"-metadata", fmt.Sprintf("track=%d/%d", i+1, total), "-metadata", "album=" + album}
 		if title != "" {
 			args = append(args, "-metadata", "title="+title)
 		}
 		if strings.HasSuffix(strings.ToLower(file), ".mp3") {
-			args = append(args, "-id3v2_version", "3") // ID3v2.3 — читается везде, включая Windows
+			args = append(args, "-id3v2_version", "3") // ID3v2.3 is readable everywhere, Windows included
 		}
 		args = append(args, tmp)
 
