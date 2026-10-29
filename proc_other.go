@@ -5,6 +5,7 @@ package main
 // Things that work differently on Linux and macOS.
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
 	"syscall"
@@ -36,3 +37,9 @@ func openWith(target string) {
 }
 
 func consoleUTF8() {}
+
+// showError: the error is already printed to the terminal, wait so it can be read.
+func showError(msg string) {
+	fmt.Println("Press Enter to close.")
+	fmt.Scanln()
+}

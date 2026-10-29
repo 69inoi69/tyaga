@@ -10,12 +10,17 @@ package main
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -43,7 +48,7 @@ func (t *toolSet) setStatus(s string) {
 	t.status = s
 	t.mu.Unlock()
 	if s != "" {
-		fmt.Println(s)
+		logf("%s", s)
 	}
 }
 
@@ -76,24 +81,27 @@ func find(name string) string {
 
 // asset is where to download a program for this system from.
 // zipped: the archive contains the needed file (and maybe more), it's extracted by name.
+// sums: the release's checksum file, to make sure the download is exactly what was published.
 type asset struct {
 	url    string
 	zipped []string // which files to extract from the zip; empty means the download is the file itself
+	sums   string
 }
 
 func ytdlpAsset() (asset, bool) {
 	base := "https://github.com/yt-dlp/yt-dlp/releases/latest/download/"
-	switch runtime.GOOS + "/" + runtime.GOARCH {
-	case "windows/amd64", "windows/arm64":
-		return asset{url: base + "yt-dlp.exe"}, true
-	case "linux/amd64":
-		return asset{url: base + "yt-dlp_linux"}, true
-	case "linux/arm64":
-		return asset{url: base + "yt-dlp_linux_aarch64"}, true
-	case "darwin/amd64", "darwin/arm64":
-		return asset{url: base + "yt-dlp_macos"}, true
+	file := map[string]string{
+		"windows/amd64": "yt-dlp.exe",
+		"windows/arm64": "yt-dlp.exe",
+		"linux/amd64":   "yt-dlp_linux",
+		"linux/arm64":   "yt-dlp_linux_aarch64",
+		"darwin/amd64":  "yt-dlp_macos",
+		"darwin/arm64":  "yt-dlp_macos",
+	}[runtime.GOOS+"/"+runtime.GOARCH]
+	if file == "" {
+		return asset{}, false
 	}
-	return asset{}, false
+	return asset{url: base + file, sums: base + "SHA2-256SUMS"}, true
 }
 
 func denoAsset() (asset, bool) {
@@ -109,7 +117,7 @@ func denoAsset() (asset, bool) {
 	if file == "" {
 		return asset{}, false
 	}
-	return asset{url: base + file, zipped: []string{exeName("deno")}}, true
+	return asset{url: base + file, zipped: []string{exeName("deno")}, sums: base + file + ".sha256sum"}, true
 }
 
 // ffmpeg is downloaded automatically only on Windows: the Linux builds come as tar.xz,
@@ -118,9 +126,9 @@ func ffmpegAsset() (asset, bool) {
 	base := "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/"
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "windows/amd64":
-		return asset{url: base + "ffmpeg-master-latest-win64-gpl.zip", zipped: []string{"ffmpeg.exe", "ffprobe.exe"}}, true
+		return asset{url: base + "ffmpeg-master-latest-win64-gpl.zip", zipped: []string{"ffmpeg.exe", "ffprobe.exe"}, sums: base + "checksums.sha256"}, true
 	case "windows/arm64":
-		return asset{url: base + "ffmpeg-master-latest-winarm64-gpl.zip", zipped: []string{"ffmpeg.exe", "ffprobe.exe"}}, true
+		return asset{url: base + "ffmpeg-master-latest-winarm64-gpl.zip", zipped: []string{"ffmpeg.exe", "ffprobe.exe"}, sums: base + "checksums.sha256"}, true
 	}
 	return asset{}, false
 }
@@ -154,7 +162,7 @@ func setupTools() {
 			if a, ok := n.asset(); !ok {
 				problems = append(problems, n.name+" not found. "+installHint(n.name))
 			} else if err := download(n.name, a); err != nil {
-				fmt.Println("Error downloading "+n.name+":", err)
+				logf("Error downloading %s: %v", n.name, err)
 				problems = append(problems, "Could not download "+n.name+". Check your internet and restart TYAGA. "+installHint(n.name))
 			} else {
 				path = find(n.name)
@@ -178,7 +186,7 @@ func setupTools() {
 	tools.ok = tools.ytdlp != "" && tools.ffmpeg != "" // without Deno some videos won't download, but the rest works
 	tools.mu.Unlock()
 	if tools.err != "" {
-		fmt.Println(tools.err)
+		logf("%s", tools.err)
 	}
 	pump() // in case links were added during setup
 }
@@ -204,9 +212,13 @@ func download(name string, a asset) error {
 		tmp.Close()
 		return fmt.Errorf("server replied %s", resp.Status)
 	}
-	_, err = io.Copy(tmp, &progressReader{r: resp.Body, total: resp.ContentLength, name: name})
+	hash := sha256.New()
+	_, err = io.Copy(io.MultiWriter(tmp, hash), &progressReader{r: resp.Body, total: resp.ContentLength, name: name})
 	tmp.Close()
 	if err != nil {
+		return err
+	}
+	if err := verify(a, hex.EncodeToString(hash.Sum(nil))); err != nil {
 		return err
 	}
 
@@ -218,6 +230,52 @@ func download(name string, a asset) error {
 		return os.Chmod(dst, 0o755)
 	}
 	return unzipFiles(tmp.Name(), a.zipped)
+}
+
+var sha256Re = regexp.MustCompile(`(?i)\b[0-9a-f]{64}\b`)
+
+// verify compares the downloaded file's SHA-256 with the one the release publishes.
+// The checksum file is either a list ("<hash>  <file>" per line) or a single hash
+// (Deno's Windows files are PowerShell output with "Hash : …").
+func verify(a asset, got string) error {
+	if a.sums == "" {
+		return nil
+	}
+	resp, err := http.Get(a.sums)
+	if err != nil {
+		return fmt.Errorf("could not get the checksum: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("could not get the checksum: server replied %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	want := expectedSum(string(body), path.Base(a.url))
+	if want == "" {
+		return errors.New("the checksum file doesn't mention " + path.Base(a.url))
+	}
+	if !strings.EqualFold(want, got) {
+		return errors.New("the download is damaged or not the published file (checksum mismatch)")
+	}
+	return nil
+}
+
+// expectedSum finds the hash for file in a checksum file.
+func expectedSum(text, file string) string {
+	all := sha256Re.FindAllString(text, -1)
+	for _, line := range strings.Split(text, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && sha256Re.MatchString(fields[0]) && strings.TrimPrefix(fields[len(fields)-1], "*") == file {
+			return fields[0]
+		}
+	}
+	if len(all) == 1 { // a file with a single hash is for this one download
+		return all[0]
+	}
+	return ""
 }
 
 // unzipFiles extracts the needed files from the archive (wherever they are inside) right into bin.
@@ -285,7 +343,7 @@ func (p *progressReader) Read(b []byte) (int, error) {
 		}
 	}
 	if err == io.EOF {
-		fmt.Printf("Downloaded %s (%.0f MB)\n", p.name, mb)
+		logf("Downloaded %s (%.0f MB)", p.name, mb)
 	}
 	return n, err
 }

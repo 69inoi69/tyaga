@@ -249,7 +249,10 @@ func mergePlaylist(j *Job, tracks []track) (string, error) {
 		var b strings.Builder
 		b.WriteString("ffconcat version 1.0\n")
 		for _, p := range pieces {
-			b.WriteString("file '" + concatEscape(filepath.Base(p)) + "'\n") // relative to the list: same folder
+			// Full paths: the pieces may lie in different folders (a channel's tabs).
+			// Forward slashes work everywhere, Windows included.
+			abs, _ := filepath.Abs(p)
+			b.WriteString("file '" + concatEscape(filepath.ToSlash(abs)) + "'\n")
 		}
 		if err := os.WriteFile(list, []byte(b.String()), 0o644); err != nil {
 			return err
@@ -357,15 +360,15 @@ func mergePlaylist(j *Job, tracks []track) (string, error) {
 		return "", err
 	}
 
-	// The pieces aren't needed anymore. The folder is removed only if nothing else is left in it.
-	for _, t := range tracks {
-		os.Remove(t.Filepath)
-	}
+	// The pieces aren't needed anymore. Their folders are removed only if nothing else is left there.
 	for _, p := range pieces {
 		os.Remove(p)
 	}
 	os.Remove(meta)
-	os.Remove(dir)
+	for _, t := range tracks {
+		os.Remove(t.Filepath)
+		os.Remove(filepath.Dir(t.Filepath))
+	}
 	return out, nil
 }
 

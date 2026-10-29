@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"syscall"
+	"unsafe"
 )
 
 const createNoWindow = 0x08000000
@@ -38,4 +39,13 @@ func openFolder(dir string) {
 // consoleUTF8 makes non-Latin text in the console readable instead of mojibake.
 func consoleUTF8() {
 	syscall.NewLazyDLL("kernel32.dll").NewProc("SetConsoleOutputCP").Call(65001)
+}
+
+// showError shows an error in a message box: there's no console window to print it to.
+func showError(msg string) {
+	text, _ := syscall.UTF16PtrFromString(msg)
+	title, _ := syscall.UTF16PtrFromString("TYAGA")
+	const iconError = 0x10
+	syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW").Call(0,
+		uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)), iconError)
 }

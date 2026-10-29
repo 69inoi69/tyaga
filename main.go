@@ -3,7 +3,8 @@
 // How it works: the program starts a tiny web server on your computer and opens a page
 // in the browser. The page sends links to the server, the server runs yt-dlp for them one
 // at a time and reads its output, and the page asks for progress every 0.7 s.
-// Close the console window and the server stops.
+// On Windows there's no console window: TYAGA quits by the Quit button on the page,
+// or by itself once the page is closed and the downloads are finished (see app.go).
 //
 // By default only this computer can reach the server. The "Phone" button on the page opens
 // access from the home network with a short code, so you can download from your phone.
@@ -26,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed index.html
@@ -56,6 +58,12 @@ func main() {
 	cookiesFile = filepath.Join(appDir, "youtube-cookies.txt")
 	outDir = *out
 
+	// Launched again while already running: just bring up the page of the running one.
+	if alreadyRunning() {
+		return
+	}
+	openLog()
+
 	// Local server: 127.0.0.1 only, the OS picks a free port.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -64,14 +72,16 @@ func main() {
 	localToken := randomToken()
 	address := fmt.Sprintf("http://%s/?t=%s", ln.Addr(), localToken)
 
-	fmt.Println("TYAGA " + version + " is running. Files are saved to " + outDir)
-	fmt.Println("If the browser didn't open: " + address)
-	fmt.Println("Close this window to quit.")
-	fmt.Println()
+	os.WriteFile(instanceFile(), []byte(address), 0o600)
+
+	logf("TYAGA %s is running. Files are saved to %s", version, outDir)
+	logf("If the browser didn't open: %s", address)
+	logf("To quit: the Quit button on the page, or just close the page.")
 
 	go setupTools()
 	if !*noBrowser {
 		openURL(address)
+		go quitWhenAbandoned() // with -no-browser nobody promised to keep a page open
 	}
 	fail(http.Serve(ln, handler(false, func() string { return localToken })).Error())
 }
@@ -91,10 +101,11 @@ func programDir() string {
 	return dir
 }
 
+// fail shows the error (a message box on Windows, where there's no console) and exits.
 func fail(msg string) {
-	fmt.Println(msg)
-	fmt.Println("Press Enter to close.")
-	fmt.Scanln()
+	logf("%s", msg)
+	os.Remove(instanceFile())
+	showError(msg)
 	os.Exit(1)
 }
 
@@ -152,7 +163,7 @@ func setLAN(on bool) error {
 		if lan.srv != nil {
 			lan.srv.Close()
 			lan.srv, lan.code, lan.url = nil, "", ""
-			fmt.Println("Phone access is off.")
+			logf("Phone access is off.")
 		}
 		return nil
 	}
@@ -176,7 +187,7 @@ func setLAN(on bool) error {
 	code := lan.code
 	lan.srv = &http.Server{Handler: handler(true, func() string { return code })}
 	go lan.srv.Serve(ln)
-	fmt.Println("Phone access is on: " + lan.url)
+	logf("Phone access is on: %s", lan.url)
 	return nil
 }
 
@@ -193,7 +204,7 @@ func lanFailure() {
 	tooMany := lan.failures >= 20
 	lan.Unlock()
 	if tooMany {
-		fmt.Println("Too many wrong codes from other devices.")
+		logf("Too many wrong codes from other devices.")
 		go setLAN(false)
 	}
 }
@@ -226,7 +237,7 @@ func handler(remote bool, token func() string) http.Handler {
 		// Everything else only for the page that knows the token. Normal requests send it in a
 		// header (another website can't do that), file download links send it in the URL.
 		got := r.Header.Get("X-Token")
-		if r.URL.Path == "/api/file" {
+		if r.URL.Path == "/api/file" || r.URL.Path == "/api/bye" { // links and sendBeacon can't send headers
 			got = r.URL.Query().Get("t")
 		}
 		if subtle.ConstantTimeCompare([]byte(got), []byte(token())) != 1 {
@@ -240,6 +251,7 @@ func handler(remote bool, token func() string) http.Handler {
 		if r.Method == http.MethodGet {
 			switch r.URL.Path {
 			case "/api/state":
+				pageSeen()
 				status, problem, ready := tools.state()
 				on, link := lanState()
 				mu.Lock()
@@ -274,11 +286,10 @@ func handler(remote bool, token func() string) http.Handler {
 			return
 		}
 		var body struct {
-			Text, Mode, Format    string
-			Playlist, Split, Edit bool
-			Merge                 bool
-			ID                    int
-			On                    bool
+			Text string
+			Options
+			ID int
+			On bool
 		}
 		json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body)
 
@@ -296,19 +307,31 @@ func handler(remote bool, token func() string) http.Handler {
 					return
 				}
 			}
-			mode := "video"
-			if body.Mode == "audio" {
-				mode = "audio"
+			o := body.Options // only known values get through
+			if o.Mode != "audio" {
+				o.Mode = "video"
 			}
-			format := "m4a"
-			if body.Format == "mp3" {
-				format = "mp3"
+			if o.Format != "mp3" {
+				o.Format = "m4a"
 			}
-			addJobs(links, mode, format, body.Playlist, body.Split, body.Edit, body.Merge)
+			if o.Quality != 1080 && o.Quality != 720 && o.Quality != 480 {
+				o.Quality = 0
+			}
+			addJobs(links, o)
 		case "/api/cancel":
 			cancelJob(body.ID)
 		case "/api/clear":
 			clearFinished()
+		case "/api/bye":
+			pageClosed()
+		case "/api/quit":
+			if remote { // a phone can't switch off the computer's TYAGA
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			writeJSON(w, map[string]bool{"ok": true})
+			go func() { time.Sleep(200 * time.Millisecond); quit() }() // let the answer reach the page first
+			return
 		case "/api/open":
 			if !remote { // opening the folder from a phone makes no sense: it would open on the computer
 				os.MkdirAll(outDir, 0o755)
