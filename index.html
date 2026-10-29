@@ -43,6 +43,11 @@ input[type=checkbox]{accent-color:var(--acc)}
 .phone{margin-top:12px;font-size:14px;color:var(--dim)}
 .phone code{display:block;margin:6px 0;font-size:17px;color:var(--fg);word-break:break-all;user-select:all}
 .empty{color:var(--dim)}
+.times{color:var(--dim);display:inline-flex;gap:6px;align-items:center}
+.times input{width:68px;background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;outline-color:var(--acc)}
+.sub .link{background:none;border:0;padding:0;margin-top:2px;color:var(--acc);cursor:pointer;font:inherit}
+.bm{display:inline-block;margin:8px 0;padding:7px 16px;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;text-decoration:none;cursor:grab}
+.warn{color:var(--err)}
 </style></head><body><main>
 <h1>ТЯГА <small id="ver"></small></h1>
 
@@ -64,6 +69,8 @@ input[type=checkbox]{accent-color:var(--acc)}
     </div>
     <label data-for="video" title="H.264 + AAC — opens in DaVinci Resolve and any player"><input type="checkbox" id="edit"> for editing</label>
     <label title="Cut sponsor ads, self-promo and &quot;subscribe!&quot; bits (SponsorBlock). For music also the non-music parts of a clip."><input type="checkbox" id="sponsors" checked> no sponsors</label>
+    <label id="cutBox" title="Download only a piece of the video"><input type="checkbox" id="cut"> fragment</label>
+    <span class="times" id="cutTimes" hidden>from <input id="from" placeholder="0:00"> to <input id="to" placeholder="end"></span>
     <button class="go" id="go">Download</button>
   </div>
   <div class="msg" id="msg"></div>
@@ -75,7 +82,14 @@ input[type=checkbox]{accent-color:var(--acc)}
     <button id="open" data-local>Open folder</button>
     <button id="clear">Clear finished</button>
     <button id="quit" data-local title="Downloads stop; unfinished files resume next time">Quit</button>
-    <button id="lan" class="right" data-local>Phone: off</button>
+    <button id="sendBtn" class="right" data-local>Send to TYAGA</button>
+    <button id="lan" data-local>Phone: off</button>
+  </div>
+  <div class="phone" id="send" hidden>
+    Drag this button to your browser's bookmarks bar:<br>
+    <a class="bm" id="bm" title="Drag me to the bookmarks bar">→ ТЯГА</a><br>
+    Then, watching a video on YouTube, click the bookmark: the video goes into the queue with the switches as you left them here. TYAGA has to be running.
+    <div class="warn" id="bmWarn" hidden>Right now TYAGA got a different port (8764 was busy), so the bookmark won't reach it until the next start.</div>
   </div>
   <div class="phone" id="phone" hidden>
     Open this on your phone (it has to be on the same Wi-Fi):
@@ -87,7 +101,9 @@ input[type=checkbox]{accent-color:var(--acc)}
 </main><script>
 var TOKEN = new URLSearchParams(location.search).get('t');
 var LABEL = { queued: 'queued', running: 'downloading', done: 'done', error: 'error', cancelled: 'cancelled' };
-var state = {}, lastList = '', closed = false, OFFLINE = 'TYAGA is not responding. Start the program again.';
+// stopped: Quit was clicked, or this is the bookmark's little window. (Not "closed": that's
+// window.closed, a built-in that silently ignores being set.)
+var state = {}, lastList = '', stopped = false, OFFLINE = 'TYAGA is not responding. Start the program again.';
 
 function $(id) { return document.getElementById(id); }
 
@@ -157,25 +173,40 @@ function restore() {
 BOXES.forEach(function (id) { $(id).addEventListener('change', save); });
 
 // "As one file" only makes sense for a playlist; and then splitting by chapters doesn't.
+// A fragment is for one video, not a playlist.
 function syncBoxes() {
-  $('mergeBox').hidden = !$('playlist').checked;
-  $('split').disabled = $('playlist').checked && $('merge').checked;
+  var list = $('playlist').checked, cut = !list && $('cut').checked;
+  $('mergeBox').hidden = !list;
+  $('cutBox').hidden = list;
+  $('cutTimes').hidden = !cut;
+  $('split').disabled = (list && $('merge').checked) || cut;
   $('splitBox').style.opacity = $('split').disabled ? .4 : '';
 }
-$('playlist').onchange = $('merge').onchange = syncBoxes;
+$('playlist').onchange = $('merge').onchange = $('cut').onchange = syncBoxes;
 restore();
 syncBoxes();
+
+// The switches as they are now, for /api/add.
+function options(text) {
+  var list = $('playlist').checked, cut = !list && $('cut').checked;
+  return {
+    text: text, mode: mode(), format: format(),
+    quality: +quality(), playlist: list, split: $('split').checked, edit: $('edit').checked,
+    merge: list && $('merge').checked, sponsors: $('sponsors').checked,
+    from: cut ? $('from').value.trim() : '', to: cut ? $('to').value.trim() : '',
+  };
+}
 
 function add() {
   var text = $('links').value.trim();
   if (!text) return;
-  api('/api/add', {
-    text: text, mode: mode(), format: format(),
-    quality: +quality(), playlist: $('playlist').checked, split: $('split').checked, edit: $('edit').checked,
-    merge: $('playlist').checked && $('merge').checked, sponsors: $('sponsors').checked,
-  }).then(function (r) {
+  api('/api/add', options(text)).then(function (r) {
     $('msg').textContent = r.error || '';
-    if (!r.error) $('links').value = '';
+    if (!r.error) { // a fragment is a one-off: the next link is whole again
+      $('links').value = $('from').value = $('to').value = '';
+      $('cut').checked = false;
+      syncBoxes();
+    }
     refresh();
   });
 }
@@ -187,20 +218,28 @@ $('clear').onclick = function () { api('/api/clear', {}).then(refresh); };
 $('quit').onclick = function () {
   var busy = (state.jobs || []).some(function (j) { return j.status === 'queued' || j.status === 'running'; });
   if (busy && !confirm('Something is still downloading. Quit anyway?')) return;
-  closed = true;
+  stopped = true;
   api('/api/quit', {}).catch(function () {}).then(showClosed);
 };
 
 // Closing or reloading the page: tell TYAGA. If no page comes back, it finishes
 // the downloads and quits by itself.
 addEventListener('pagehide', function () {
-  if (!closed) navigator.sendBeacon('/api/bye?t=' + encodeURIComponent(TOKEN));
+  if (!stopped) navigator.sendBeacon('/api/bye?t=' + encodeURIComponent(TOKEN));
 });
 
 function showClosed() {
   document.querySelector('main').innerHTML =
     '<h1>ТЯГА</h1><div class="card">TYAGA is closed. Run it again when you need it.</div>';
 }
+$('sendBtn').onclick = function () { $('send').hidden = !$('send').hidden; };
+
+// The bookmark opens a small TYAGA window with the video's address in it (see the end of the script).
+$('bm').href = 'javascript:(function(){window.open(' +
+  JSON.stringify(location.origin + '/?t=' + encodeURIComponent(TOKEN) + '&add=') +
+  '+encodeURIComponent(location.href),"tyaga-add","width=460,height=200")})()';
+$('bm').onclick = function (e) { e.preventDefault(); }; // it's for dragging, not clicking here
+
 $('lan').onclick = function () {
   api('/api/lan', { on: !(state.lan && state.lan.on) }).then(function (r) {
     $('msg').textContent = r.error || '';
@@ -214,6 +253,7 @@ function statusText(j) {
   if (j.status === 'queued' && !state.ready) s = 'waiting for setup';
   if (j.merge && j.list) s = '1 file · ' + s;
   if (j.mode === 'video' && j.quality) s = j.quality + 'p · ' + s;
+  if (j.from || j.to) s = '✂ ' + (j.from || '0:00') + '–' + (j.to || 'end') + ' · ' + s;
   return j.mode === 'audio' ? '♪ ' + j.format.toUpperCase() + ' · ' + s : s;
 }
 
@@ -232,6 +272,7 @@ function render() {
   $('lan').textContent = lan.on ? 'Phone: on' : 'Phone: off';
   $('phone').hidden = !lan.on;
   $('phoneUrl').textContent = lan.url || '';
+  $('bmWarn').hidden = state.remote || state.fixedPort !== false;
 
   // Redraw the list only if something in it changed: otherwise a link
   // or the × button could vanish right under your finger.
@@ -264,6 +305,15 @@ function render() {
     if (j.status === 'error' && j.error) row.append(el('div', 'sub err', j.error));
     if (j.status === 'done' && j.error) row.append(el('div', 'sub', j.error)); // e.g. skipped videos in a merged playlist
 
+    // On the computer: show the file in its folder.
+    if (!state.remote && j.status === 'done' && j.files.length) {
+      var reveal = el('button', 'link', 'Show in folder');
+      reveal.onclick = function () { api('/api/reveal', { id: j.id, n: j.files.length - 1 }); };
+      var box = el('div', 'sub');
+      box.append(reveal);
+      row.append(box);
+    }
+
     // On a phone: links to take the finished files with you.
     if (state.remote && j.status === 'done' && j.files.length) {
       var files = el('div', 'sub');
@@ -280,15 +330,37 @@ function render() {
 }
 
 function refresh() {
-  if (closed) return;
+  if (stopped) return;
   api('/api/state')
     .then(function (s) {
-      if (closed) return; // an answer that was on its way when Quit was clicked
+      if (stopped) return; // an answer that was on its way when Quit was clicked
       state = s;
       if ($('msg').textContent === OFFLINE) $('msg').textContent = '';
       render();
     })
-    .catch(function () { if (!closed && $('msg')) $('msg').textContent = OFFLINE; });
+    .catch(function () { if (!stopped && $('msg')) $('msg').textContent = OFFLINE; });
+}
+
+// Opened by the "Send to TYAGA" bookmark: the address has &add=<video>. Add it with the
+// saved switches. In the bookmark's small window just say so and close.
+var ADD = new URLSearchParams(location.search).get('add');
+if (ADD) {
+  history.replaceState(null, '', '/?t=' + encodeURIComponent(TOKEN)); // a reload mustn't add it again
+  var opts = options(ADD);
+  opts.from = opts.to = '';
+  if (window.name === 'tyaga-add') {
+    stopped = true; // this little window doesn't need the queue
+    document.querySelector('main').innerHTML = '<h1>ТЯГА</h1><div class="card" id="sent">Sending…</div>';
+  }
+  api('/api/add', opts).then(function (r) {
+    if (stopped) {
+      $('sent').textContent = r.error || '✓ Sent to TYAGA';
+      if (!r.error) setTimeout(function () { window.close(); }, 1200);
+    } else {
+      $('msg').textContent = r.error || '';
+      refresh();
+    }
+  }).catch(function () { if (stopped) $('sent').textContent = OFFLINE; });
 }
 
 refresh();

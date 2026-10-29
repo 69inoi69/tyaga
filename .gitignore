@@ -10,3 +10,8 @@ youtube-cookies.txt
 tyaga
 tyaga.exe
 dist/
+
+# What TYAGA keeps next to itself while running
+tyaga.log
+.tyaga-running
+.tyaga-token
