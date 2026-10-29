@@ -11,9 +11,11 @@
   <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-161616" alt="Windows, macOS, Linux">
 </p>
 
-*Tyaga* means "pull" in Russian and Ukrainian. That's the whole job: paste a YouTube link, get a file.
+*Tyaga* is Ukrainian and Russian for "pull", and that's the whole job: it pulls video and music off YouTube and onto your disk. One small program, nothing to install, and the interface is just a page in your browser. The heavy lifting is done by [yt-dlp](https://github.com/yt-dlp/yt-dlp); TYAGA makes it pleasant.
 
-One small program, nothing to install, and the interface is just a page in your browser. The heavy lifting is done by [yt-dlp](https://github.com/yt-dlp/yt-dlp); TYAGA makes it pleasant.
+<p align="center">
+  <img src="docs/screenshot.png" width="680" alt="TYAGA: a link box, video/audio switches and a download queue">
+</p>
 
 ## What it can do
 
@@ -35,7 +37,9 @@ Everything lands in `Downloads/YouTube`.
 
 ## Run it
 
-Grab the archive for your system from [Releases](../../releases), unpack it anywhere, run `tyaga`. A page opens. That's it.
+1. Grab the archive for your system from [Releases](../../releases/latest).
+2. Unpack it anywhere.
+3. Run `tyaga`. A page opens. That's it.
 
 On the first run TYAGA fetches what it needs into a `bin` folder next to itself: yt-dlp, ffmpeg and Deno (yt-dlp needs Deno to deal with YouTube). On Windows that's about 250 MB, once. Every download is checked against the checksum its project publishes. yt-dlp updates itself on every start, because YouTube keeps changing things. Already have these tools installed? TYAGA uses yours.
 
@@ -95,7 +99,7 @@ To publish a release with builds for every system: Actions → Release → Run w
 
 ## How it started
 
-As `TYAGA.cmd`: a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it grew up and was rewritten in Go, into one program that runs everywhere.
+As `TYAGA.cmd`: a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it grew up and was rewritten in Go, into one program that runs everywhere. The icon says the same thing as the name: a "Т" with speed lines, pulling.
 
 ## License
 
