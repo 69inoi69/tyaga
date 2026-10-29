@@ -276,6 +276,7 @@ func handler(remote bool, token func() string) http.Handler {
 		var body struct {
 			Text, Mode, Format    string
 			Playlist, Split, Edit bool
+			Merge                 bool
 			ID                    int
 			On                    bool
 		}
@@ -303,7 +304,7 @@ func handler(remote bool, token func() string) http.Handler {
 			if body.Format == "mp3" {
 				format = "mp3"
 			}
-			addJobs(links, mode, format, body.Playlist, body.Split, body.Edit)
+			addJobs(links, mode, format, body.Playlist, body.Split, body.Edit, body.Merge)
 		case "/api/cancel":
 			cancelJob(body.ID)
 		case "/api/clear":

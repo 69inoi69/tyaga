@@ -56,7 +56,8 @@ label{color:var(--dim);cursor:pointer;user-select:none}
       <button data-v="mp3" title="Re-encoded at the highest quality, plays on anything">MP3</button>
     </div>
     <label><input type="checkbox" id="playlist"> whole playlist</label>
-    <label data-for="audio" hidden><input type="checkbox" id="split" checked> split by chapters</label>
+    <label id="mergeBox" hidden title="The whole playlist as one long file, each video is a chapter"><input type="checkbox" id="merge"> as one file</label>
+    <label data-for="audio" id="splitBox" hidden><input type="checkbox" id="split" checked> split by chapters</label>
     <label data-for="video" title="H.264 + AAC — opens in DaVinci Resolve and any player"><input type="checkbox" id="edit"> for editing</label>
     <button class="go" id="go">Download</button>
   </div>
@@ -122,12 +123,21 @@ var mode = segmented('mode', function (m) {
 });
 var format = segmented('format');
 
+// "As one file" only makes sense for a playlist; and then splitting by chapters doesn't.
+function syncBoxes() {
+  $('mergeBox').hidden = !$('playlist').checked;
+  $('split').disabled = $('playlist').checked && $('merge').checked;
+  $('splitBox').style.opacity = $('split').disabled ? .4 : '';
+}
+$('playlist').onchange = $('merge').onchange = syncBoxes;
+
 function add() {
   var text = $('links').value.trim();
   if (!text) return;
   api('/api/add', {
     text: text, mode: mode(), format: format(),
     playlist: $('playlist').checked, split: $('split').checked, edit: $('edit').checked,
+    merge: $('playlist').checked && $('merge').checked,
   }).then(function (r) {
     $('msg').textContent = r.error || '';
     if (!r.error) $('links').value = '';
@@ -150,6 +160,7 @@ function statusText(j) {
   // The file is at 100%, but yt-dlp is still working: converting, merging or embedding the cover.
   var s = j.status === 'running' && j.progress >= 100 ? 'processing' : LABEL[j.status];
   if (j.status === 'queued' && !state.ready) s = 'waiting for setup';
+  if (j.merge && j.playlist) s = '1 file · ' + s;
   return j.mode === 'audio' ? '♪ ' + j.format.toUpperCase() + ' · ' + s : s;
 }
 
@@ -197,6 +208,7 @@ function render() {
       row.append(bar, el('div', 'sub', details.filter(Boolean).join(' · ')));
     }
     if (j.status === 'error' && j.error) row.append(el('div', 'sub err', j.error));
+    if (j.status === 'done' && j.error) row.append(el('div', 'sub', j.error)); // e.g. skipped videos in a merged playlist
 
     // On a phone: links to take the finished files with you.
     if (state.remote && j.status === 'done' && j.files.length) {
