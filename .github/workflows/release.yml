@@ -21,21 +21,30 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::The version must look like v1.0.0 (got \"$VERSION\")"; exit 1
+          fi
+
+      # Stamps the version into the exe's "Properties → Details". Not worth failing a release
+      # over: without it the exe still gets the icon, just with the version from the repo.
       - name: Icon and version for the Windows exe
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          command -v llvm-windres || ls /usr/bin/llvm-windres-* || (sudo apt-get update -qq && sudo apt-get install -y -qq llvm)
-          winres/make.sh "$VERSION"
+          winres/make.sh "$VERSION" 2>&1 || {
+            sudo apt-get update -qq && sudo apt-get install -y -qq llvm >/dev/null
+            winres/make.sh "$VERSION" 2>&1
+          } || echo "::warning::Couldn't stamp the version into the Windows exe; building with the committed resources."
 
       - name: Build
         env:
           VERSION: ${{ inputs.version }}
         run: |
           set -eu
-          if ! echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "The version must look like v1.0.0"; exit 1
-          fi
           mkdir -p dist
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os=${target%/*}; arch=${target#*/}
