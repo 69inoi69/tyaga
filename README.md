@@ -9,6 +9,7 @@ Downloads video and audio from YouTube. One program, no install, the interface i
 - For music: clean tags (artist, title without "(Official Video)", year) and a square album cover.
 - A whole album as one video with chapters → **split into separate tracks** with numbers and titles.
 - **Whole playlists** — into their own folder, numbered.
+- **A playlist as one file**: the "as one file" checkbox glues the whole playlist into one long audio or video, each video becomes a chapter. If all videos have the same format, they're joined without re-encoding (fast, no quality loss); otherwise everything is re-encoded to one format first (slower, especially for video). The separate pieces are deleted afterwards.
 - A queue: paste a bunch of links at once, cancel any of them.
 - **From your phone** over home Wi-Fi: add a link and grab the finished file.
 
@@ -51,6 +52,7 @@ TYAGA starts a tiny web server on your computer (reachable only from this comput
 ```
 main.go         server, phone access
 jobs.go         download queue, yt-dlp command, tags for split tracks
+merge.go        gluing a playlist into one file with chapters
 tools.go        finding and auto-downloading yt-dlp, ffmpeg, Deno
 proc_*.go       things that differ between Windows and Linux/macOS
 index.html      the whole page: markup, styles, script

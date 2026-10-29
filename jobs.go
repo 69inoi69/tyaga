@@ -26,6 +26,7 @@ type Job struct {
 	Playlist bool     `json:"playlist"` // download the whole playlist if the link points to one
 	Split    bool     `json:"split"`    // audio: split into separate tracks by chapters
 	Edit     bool     `json:"edit"`     // video: H.264 + AAC for video editors
+	Merge    bool     `json:"merge"`    // playlist: glue everything into one file with chapters
 	Format   string   `json:"format"`   // audio: "m4a" or "mp3"
 	Status   string   `json:"status"`   // queued, running, done, error, cancelled
 	Title    string   `json:"title"`    // title of the current video, numbered if it's a playlist
@@ -37,6 +38,7 @@ type Job struct {
 
 	paths  []string    // full paths of finished files
 	splits []splitInfo // videos that were split by chapters
+	tracks []track     // playlist items to glue into one file (Merge)
 }
 
 // splitInfo is what yt-dlp reports about a video that was split by chapters.
@@ -138,9 +140,17 @@ func buildArgs(j *Job) []string {
 	}
 	args = append(args, "-o", name+".%(ext)s")
 
+	// "One file": after the download the pieces get glued together (merge.go), so here
+	// yt-dlp only reports each finished piece. Splitting by chapters makes no sense then.
+	merge := isList && j.Merge
+	if merge {
+		args = append(args, "--print", "after_move:TRACK|%(.{filepath,title,artist,playlist_title})j")
+	}
+
 	if j.Mode == "video" {
 		// Best video + best audio in MP4. "For editing" prefers H.264 and AAC.
-		if j.Edit {
+		// For one file too: if every piece is H.264 + AAC, they can be glued without re-encoding.
+		if j.Edit || merge {
 			args = append(args, "-S", "vcodec:h264,res,acodec:aac")
 		}
 		args = append(args, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "--remux-video", "mp4")
@@ -157,7 +167,7 @@ func buildArgs(j *Job) []string {
 		if isList { // track number = position in the playlist
 			args = append(args, "--parse-metadata", "%(playlist_index)s:%(track_number)s")
 		}
-		if j.Split {
+		if j.Split && !merge {
 			// A whole album as one video with chapters → a folder with separate tracks appears next to it.
 			args = append(args, "--split-chapters",
 				"-o", "chapter:"+name+"/%(section_number)02d - %(section_title)s.%(ext)s",
@@ -236,6 +246,11 @@ func onLine(j *Job, line string) {
 		path := line[5:]
 		j.paths = append(j.paths, path)
 		j.Files = append(j.Files, filepath.Base(path))
+	case strings.HasPrefix(line, "TRACK|"):
+		var t track
+		if json.Unmarshal([]byte(line[6:]), &t) == nil && t.Filepath != "" {
+			j.tracks = append(j.tracks, t)
+		}
 	case strings.HasPrefix(line, "DONE|"):
 		var info splitInfo
 		if json.Unmarshal([]byte(line[5:]), &info) == nil {
@@ -247,12 +262,12 @@ func onLine(j *Job, line string) {
 }
 
 // addJobs puts links into the queue.
-func addJobs(links []string, mode, format string, playlist, split, edit bool) {
+func addJobs(links []string, mode, format string, playlist, split, edit, merge bool) {
 	mu.Lock()
 	for _, url := range links {
 		jobs = append(jobs, &Job{
 			ID: nextID, URL: url, Mode: mode, Format: format,
-			Playlist: playlist, Split: split, Edit: edit,
+			Playlist: playlist, Split: split, Edit: edit, Merge: merge,
 			Status: "queued", Files: []string{},
 		})
 		nextID++
@@ -325,6 +340,32 @@ func pump() {
 		// Tag the split tracks while the download still counts as active.
 		for _, s := range splits {
 			tagChapters(s)
+		}
+
+		// "One file": glue the downloaded pieces together. If some videos of the playlist
+		// failed (deleted, private), the rest is still glued, and the error stays as a note.
+		mu.Lock()
+		tracks := j.tracks
+		j.tracks = nil
+		doMerge := j.Status == "running" && len(tracks) > 0
+		mu.Unlock()
+		if doMerge {
+			out, mergeErr := mergePlaylist(j, tracks)
+			mu.Lock()
+			switch {
+			case mergeErr == errCancelled:
+			case mergeErr != nil:
+				j.Status, j.Error = "error", mergeErr.Error()
+			default:
+				j.paths, j.Files = []string{out}, []string{filepath.Base(out)}
+				j.Title = filepath.Base(out)
+				j.Progress = 100
+				if err != nil && j.Error != "" {
+					j.Error = "Some videos were skipped: " + j.Error
+				}
+				err = nil
+			}
+			mu.Unlock()
 		}
 
 		mu.Lock()
