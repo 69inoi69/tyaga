@@ -31,6 +31,14 @@ func openURL(url string) {
 	exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 }
 
+// revealFile opens Explorer with the file selected. The command line is written by hand:
+// explorer wants /select,"path" and doesn't understand Go's usual quoting of the whole argument.
+func revealFile(path string) {
+	cmd := exec.Command("explorer.exe")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `explorer.exe /select,"` + path + `"`}
+	cmd.Start()
+}
+
 // openFolder opens a folder in Explorer.
 func openFolder(dir string) {
 	exec.Command("explorer.exe", dir).Start()

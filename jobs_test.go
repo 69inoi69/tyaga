@@ -133,3 +133,44 @@ func TestExpectedSum(t *testing.T) {
 		t.Errorf("single hash: %q", got)
 	}
 }
+
+func TestCut(t *testing.T) {
+	good := []struct {
+		from, to        string
+		section, suffix string
+	}{
+		{"1:20", "3:45", "*80-225", " [1m20s-3m45s]"},
+		{"90", "", "*90-inf", " [1m30s-end]"},
+		{"", "0:45", "*0-45", " [0s-45s]"},
+		{"1:02:03", "1:05:00.5", "*3723-3900.5", " [1h02m03s-1h05m00s]"},
+	}
+	for _, c := range good {
+		section, suffix, ok := Options{From: c.from, To: c.to}.cut()
+		if !ok || section != c.section || suffix != c.suffix {
+			t.Errorf("cut(%q, %q) = %q %q %v", c.from, c.to, section, suffix, ok)
+		}
+	}
+	if _, _, ok := (Options{}).cut(); ok {
+		t.Error("no times must mean no fragment")
+	}
+	for _, bad := range [][2]string{{"3:00", "1:00"}, {"1:75", ""}, {"abc", ""}, {"-5", ""}, {"1:2:3:4", ""}, {"1:00", "1:00"}} {
+		if _, _, ok := cutRange(bad[0], bad[1]); ok {
+			t.Errorf("cutRange(%q, %q) should be rejected", bad[0], bad[1])
+		}
+	}
+
+	args := buildArgs(&Job{URL: "https://youtu.be/a", Options: Options{Mode: "audio", Format: "m4a", Split: true, From: "1:20", To: "3:45"}})
+	if value(args, "--download-sections") != "*80-225" || !slices.Contains(args, "--force-keyframes-at-cuts") {
+		t.Errorf("fragment args: %v", args)
+	}
+	if slices.Contains(args, "--split-chapters") {
+		t.Error("a fragment isn't split by chapters")
+	}
+	if !strings.Contains(value(args, "-o"), "[1m20s-3m45s]") {
+		t.Errorf("fragment name: %q", value(args, "-o"))
+	}
+	list := buildArgs(&Job{URL: "https://www.youtube.com/playlist?list=PLx", List: true, Options: Options{Mode: "video", From: "1:20"}})
+	if slices.Contains(list, "--download-sections") {
+		t.Error("no fragments for playlists")
+	}
+}

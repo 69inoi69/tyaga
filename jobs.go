@@ -29,6 +29,73 @@ type Options struct {
 	Edit     bool   `json:"edit"`     // video: H.264 + AAC for video editors
 	Merge    bool   `json:"merge"`    // playlist: glue everything into one file with chapters
 	Sponsors bool   `json:"sponsors"` // cut sponsor segments (and non-music parts of music videos)
+	From     string `json:"from"`     // fragment: download only from…to ("1:20", "0:45", "1:02:03"); empty = start/end
+	To       string `json:"to"`
+}
+
+// parseTime reads "1:02:03", "1:20", "80" or "80.5" as seconds.
+func parseTime(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	var total float64
+	parts := strings.Split(s, ":")
+	if len(parts) > 3 {
+		return 0, false
+	}
+	for i, p := range parts {
+		v, err := strconv.ParseFloat(p, 64)
+		if err != nil || v < 0 || math.IsInf(v, 0) || math.IsNaN(v) || (i > 0 && v >= 60) {
+			return 0, false
+		}
+		total = total*60 + v
+	}
+	return total, true
+}
+
+// cutRange checks the fragment times. from = 0 and to = -1 mean "from the start" / "to the end".
+// ok is false only for times that make no sense; no fragment at all is fine.
+func cutRange(from, to string) (start, end float64, ok bool) {
+	start, end = 0, -1
+	if strings.TrimSpace(from) != "" {
+		if start, ok = parseTime(from); !ok {
+			return 0, 0, false
+		}
+	}
+	if strings.TrimSpace(to) != "" {
+		if end, ok = parseTime(to); !ok || end <= start {
+			return 0, 0, false
+		}
+	}
+	return start, end, true
+}
+
+// span: seconds → "1m20s", "1h02m03s", "45s" (for file names, so no ":").
+func span(sec float64) string {
+	s := int(sec)
+	switch {
+	case s >= 3600:
+		return fmt.Sprintf("%dh%02dm%02ds", s/3600, s/60%60, s%60)
+	case s >= 60:
+		return fmt.Sprintf("%dm%02ds", s/60, s%60)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
+// cut returns the fragment of a job: whether there is one, and its yt-dlp section and name tail.
+func (o Options) cut() (section, suffix string, ok bool) {
+	start, end, valid := cutRange(o.From, o.To)
+	if !valid || (start == 0 && end < 0) {
+		return "", "", false
+	}
+	section, suffix = "*"+strconv.FormatFloat(start, 'f', -1, 64)+"-", " ["+span(start)+"-"
+	if end < 0 {
+		section, suffix = section+"inf", suffix+"end]"
+	} else {
+		section, suffix = section+strconv.FormatFloat(end, 'f', -1, 64), suffix+span(end)+"]"
+	}
+	return section, suffix, true
 }
 
 // Job is one download = one link (a video, a playlist or a channel).
@@ -186,6 +253,14 @@ func buildArgs(j *Job) []string {
 	if j.Mode == "audio" {
 		single = "%(artist,uploader&{} - |)s%(title)s" // "Artist - Song"; without an artist just "Song"
 	}
+	// Fragment (single videos only): just that piece, cut exactly at the given times.
+	// The times go into the name, so it doesn't clash with the whole video downloaded before.
+	section, suffix, cut := j.cut()
+	cut = cut && !isList
+	if cut {
+		single += suffix
+		args = append(args, "--download-sections", section, "--force-keyframes-at-cuts")
+	}
 	name := single
 	if isList {
 		name = "%(playlist_title)s/%(playlist_index)03d - %(title)s"
@@ -243,7 +318,7 @@ func buildArgs(j *Job) []string {
 		if isList { // track number = position in the playlist
 			args = append(args, "--parse-metadata", "%(playlist_index)s:%(track_number)s")
 		}
-		if j.Split && !merge {
+		if j.Split && !merge && !cut {
 			// A whole album as one video with chapters → a folder with separate tracks appears next to it.
 			args = append(args, "--split-chapters",
 				"-o", "chapter:"+name+"/%(section_number)02d - %(section_title)s.%(ext)s",

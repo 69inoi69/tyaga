@@ -29,9 +29,13 @@
 
 **No sponsors.** SponsorBlock cuts the "this video is sponsored by…" bits and the "don't forget to subscribe". For music it also trims the talking and the movie-scene intros from clips, leaving just the song.
 
+**Just a piece.** Need only the solo from 1:20 to 3:45? Tick "fragment", type the times, and only that bit is downloaded, cut exactly where you said.
+
+**One click from YouTube.** A "→ ТЯГА" bookmark in your browser: watching a video, click it, and the video lands in the queue.
+
 **From your phone.** Paste a link on the phone and the computer downloads it. Then grab the finished file right onto the phone.
 
-Plus the little things: a queue (paste ten links at once), the switches remember how you left them, and endless YouTube Mixes are stopped after the first 25 videos.
+Plus the little things: a queue (paste ten links at once), "Show in folder" next to every finished download, the switches remember how you left them, and endless YouTube Mixes are stopped after the first 25 videos.
 
 Everything lands in `Downloads/YouTube`.
 
@@ -52,6 +56,12 @@ The folder is portable, so carry it on a USB stick if you like.
 **macOS** may refuse to open it: `xattr -d com.apple.quarantine tyaga`. ffmpeg comes from Homebrew: `brew install ffmpeg`.
 
 **Linux:** `sudo apt install ffmpeg` (or your distro's version of it).
+
+## Send to TYAGA from the browser
+
+Click "Send to TYAGA" at the bottom of the page and drag the orange "→ ТЯГА" button to your bookmarks bar. Now, on any YouTube video, click that bookmark: a small window says "Sent to TYAGA" and closes, and the video is in the queue, downloaded with the switches as you left them on the page. TYAGA has to be running.
+
+The bookmark knows TYAGA's address (port 8764) and its key, which is kept in `.tyaga-token` next to the program, so it keeps working after restarts. Delete that file to get a new key (then drag the bookmark again).
 
 ## From your phone
 
