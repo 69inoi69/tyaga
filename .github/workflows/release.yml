@@ -21,6 +21,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Icon and version for the Windows exe
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          command -v llvm-windres || ls /usr/bin/llvm-windres-* || (sudo apt-get update -qq && sudo apt-get install -y -qq llvm)
+          winres/make.sh "$VERSION"
+
       - name: Build
         env:
           VERSION: ${{ inputs.version }}
