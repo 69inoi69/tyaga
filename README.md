@@ -1,4 +1,15 @@
-# ТЯГА
+<p align="center">
+  <img src="winres/icon.svg" width="112" alt="">
+</p>
+
+<h1 align="center">ТЯГА</h1>
+
+<p align="center">
+  <b>Paste a YouTube link, get a file.</b><br>
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/69inoi69/tyaga?color=ff6b2c&label=download" alt="Latest release"></a>
+  <a href="../../actions/workflows/ci.yml"><img src="https://github.com/69inoi69/tyaga/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-161616" alt="Windows, macOS, Linux">
+</p>
 
 *Tyaga* means "pull" in Russian and Ukrainian. That's the whole job: paste a YouTube link, get a file.
 
