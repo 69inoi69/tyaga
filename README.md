@@ -74,6 +74,8 @@ You need [Go](https://go.dev/dl/) 1.22 or newer:
 go build -o tyaga .
 ```
 
+Tests: `go test ./...` (the merge tests need ffmpeg and skip themselves without it). Every pull request runs them, plus a build for every system.
+
 For Windows without the console window: `GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o tyaga.exe .`
 
 Flags: `-out folder` sets where files go, `-no-browser` skips opening the page (TYAGA then doesn't quit by itself).
