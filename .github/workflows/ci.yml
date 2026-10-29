@@ -32,6 +32,17 @@ jobs:
       - name: Tests
         run: go test ./...
 
+      # The same step the release runs. Its outcome goes into the annotations,
+      # so a broken resource build shows up in the PR, not at release time.
+      - name: Windows resources (icon + version)
+        run: |
+          if out=$(winres/make.sh v1.2.3 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq llvm >/dev/null && winres/make.sh v1.2.3 2>&1; }); then
+            echo "::notice::winres: $(echo "$out" | tr '\n' ' ')"
+          else
+            echo "::error::winres failed: $(echo "$out" | tr '\n' ' ')"; exit 1
+          fi
+          git checkout -- rsrc_windows_*.syso # keep the committed ones
+
       - name: Build for every system
         run: |
           for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
