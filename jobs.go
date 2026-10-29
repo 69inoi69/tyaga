@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,16 +19,25 @@ import (
 	"sync"
 )
 
-// Job is one download = one link (a video or a whole playlist).
+// Options are the switches on the page, the same for every link added together.
+type Options struct {
+	Mode     string `json:"mode"`     // "video" or "audio"
+	Format   string `json:"format"`   // audio: "m4a" or "mp3"
+	Quality  int    `json:"quality"`  // video: max height (1080, 720, 480), 0 = the best there is
+	Playlist bool   `json:"playlist"` // download the whole playlist if the link points to one
+	Split    bool   `json:"split"`    // audio: split into separate tracks by chapters
+	Edit     bool   `json:"edit"`     // video: H.264 + AAC for video editors
+	Merge    bool   `json:"merge"`    // playlist: glue everything into one file with chapters
+	Sponsors bool   `json:"sponsors"` // cut sponsor segments (and non-music parts of music videos)
+}
+
+// Job is one download = one link (a video, a playlist or a channel).
 type Job struct {
-	ID       int      `json:"id"`
-	URL      string   `json:"url"`
-	Mode     string   `json:"mode"`     // "video" or "audio"
-	Playlist bool     `json:"playlist"` // download the whole playlist if the link points to one
-	Split    bool     `json:"split"`    // audio: split into separate tracks by chapters
-	Edit     bool     `json:"edit"`     // video: H.264 + AAC for video editors
-	Merge    bool     `json:"merge"`    // playlist: glue everything into one file with chapters
-	Format   string   `json:"format"`   // audio: "m4a" or "mp3"
+	ID  int    `json:"id"`
+	URL string `json:"url"`
+	Options
+	List     bool     `json:"list"`     // downloads a list (playlist, channel), not one video
+	Note     string   `json:"note"`     // something worth knowing about this link
 	Status   string   `json:"status"`   // queued, running, done, error, cancelled
 	Title    string   `json:"title"`    // title of the current video, numbered if it's a playlist
 	Progress float64  `json:"progress"` // 0–100 for the current file
@@ -36,6 +46,7 @@ type Job struct {
 	Error    string   `json:"error"`
 	Files    []string `json:"files"` // names of finished files (to download them to a phone)
 
+	mix    bool        // a YouTube Mix: only the first mixLimit videos
 	paths  []string    // full paths of finished files
 	splits []splitInfo // videos that were split by chapters
 	tracks []track     // playlist items to glue into one file (Merge)
@@ -93,7 +104,45 @@ var audioTags = []string{
 	"--parse-metadata", ":(?P<meta_comment>)",
 }
 
-var listRe = regexp.MustCompile(`[?&]list=`)
+var (
+	// A channel without a tab (/@name, /channel/ID, /c/name, /user/name) → its "Videos" tab.
+	channelRe = regexp.MustCompile(`^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)/?$`)
+	// A channel tab is always a list.
+	channelTabRe = regexp.MustCompile(`^/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)/(videos|shorts|streams|playlists|podcasts|releases)/?$`)
+)
+
+// mixLimit: a YouTube Mix (list=RD…) is endless, so only its beginning is taken.
+const mixLimit = 25
+
+// classify works out what a link is: a single video or a list, and fixes up channel links.
+// playlist is the "whole playlist" checkbox: it decides only for a video link that has a
+// playlist attached (watch?v=…&list=…). A playlist or channel link is a list anyway.
+func classify(link string, playlist bool) (fixed string, list, mix bool) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return link, false, false
+	}
+	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+	host = strings.TrimPrefix(host, "m.")
+	if host != "youtube.com" && host != "music.youtube.com" && host != "youtu.be" {
+		return link, playlist, false // another site: trust the checkbox, yt-dlp knows what to do
+	}
+	listID := u.Query().Get("list")
+	// RD… is a Mix; RDCLAK… is a normal YouTube Music playlist that only looks like one.
+	mix = strings.HasPrefix(listID, "RD") && !strings.HasPrefix(listID, "RDCLAK")
+	switch {
+	case channelRe.MatchString(u.Path):
+		u.Path = strings.TrimSuffix(u.Path, "/") + "/videos"
+		return u.String(), true, false
+	case channelTabRe.MatchString(u.Path):
+		return link, true, false
+	case u.Path == "/playlist" && listID != "":
+		return link, true, mix
+	case listID != "" && playlist:
+		return link, true, mix
+	}
+	return link, false, false
+}
 
 // buildArgs builds the yt-dlp command line for a download.
 func buildArgs(j *Job) []string {
@@ -124,9 +173,12 @@ func buildArgs(j *Job) []string {
 	}
 
 	// A playlist goes into its own folder with numbered files. A single video goes straight to the downloads folder.
-	isList := j.Playlist && listRe.MatchString(j.URL)
+	isList := j.List
 	if isList {
 		args = append(args, "--yes-playlist")
+		if j.mix {
+			args = append(args, "--playlist-items", fmt.Sprintf("1:%d", mixLimit))
+		}
 	} else {
 		args = append(args, "--no-playlist")
 	}
@@ -147,11 +199,35 @@ func buildArgs(j *Job) []string {
 		args = append(args, "--print", "after_move:TRACK|%(.{filepath,title,artist,playlist_title})j")
 	}
 
+	// SponsorBlock: cut the sponsor ads, self-promotion and "subscribe!" bits.
+	// For music also the non-music parts of a clip (talking, intro scenes).
+	if j.Sponsors {
+		cut := "sponsor,selfpromo,interaction"
+		if j.Mode == "audio" {
+			cut += ",music_offtopic"
+		}
+		args = append(args, "--sponsorblock-remove", cut)
+	}
+
 	if j.Mode == "video" {
-		// Best video + best audio in MP4. "For editing" prefers H.264 and AAC.
-		// For one file too: if every piece is H.264 + AAC, they can be glued without re-encoding.
-		if j.Edit || merge {
-			args = append(args, "-S", "vcodec:h264,res,acodec:aac")
+		// Best video + best audio in MP4, not higher than the chosen quality.
+		// "For editing" prefers H.264 and AAC. For one file too: if every piece is
+		// H.264 + AAC of one size, they can be glued without re-encoding.
+		h264 := j.Edit || merge
+		var sort []string
+		if h264 {
+			sort = append(sort, "vcodec:h264")
+		}
+		if j.Quality > 0 {
+			sort = append(sort, fmt.Sprintf("res:%d", j.Quality))
+		} else if h264 {
+			sort = append(sort, "res")
+		}
+		if h264 {
+			sort = append(sort, "acodec:aac")
+		}
+		if len(sort) > 0 {
+			args = append(args, "-S", strings.Join(sort, ","))
 		}
 		args = append(args, "-f", "bv*+ba/b", "--merge-output-format", "mp4", "--remux-video", "mp4")
 	} else {
@@ -190,11 +266,14 @@ func clock(sec float64) string {
 var (
 	signInRe  = regexp.MustCompile(`(?i)sign in|not a bot|login required`)
 	tooManyRe = regexp.MustCompile(`(?i)HTTP Error 429|too many requests`)
+	sponsorRe = regexp.MustCompile(`(?i)sponsorblock`)
 )
 
 // explain turns the most common yt-dlp errors into plain language.
 func explain(line string) string {
 	switch {
+	case sponsorRe.MatchString(line):
+		return "SponsorBlock didn't answer. Untick \"no sponsors\" and add the link again."
 	case signInRe.MatchString(line):
 		return "YouTube wants you to sign in. Put a fresh youtube-cookies.txt next to the program."
 	case tooManyRe.MatchString(line):
@@ -262,14 +341,15 @@ func onLine(j *Job, line string) {
 }
 
 // addJobs puts links into the queue.
-func addJobs(links []string, mode, format string, playlist, split, edit, merge bool) {
+func addJobs(links []string, o Options) {
 	mu.Lock()
-	for _, url := range links {
-		jobs = append(jobs, &Job{
-			ID: nextID, URL: url, Mode: mode, Format: format,
-			Playlist: playlist, Split: split, Edit: edit, Merge: merge,
-			Status: "queued", Files: []string{},
-		})
+	for _, link := range links {
+		fixed, list, mix := classify(link, o.Playlist)
+		j := &Job{ID: nextID, URL: fixed, Options: o, List: list, mix: mix, Status: "queued", Files: []string{}}
+		if mix {
+			j.Note = fmt.Sprintf("A YouTube Mix never ends, so only the first %d videos.", mixLimit)
+		}
+		jobs = append(jobs, j)
 		nextID++
 	}
 	mu.Unlock()

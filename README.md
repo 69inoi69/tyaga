@@ -1,83 +1,89 @@
-# ТЯГА (TYAGA)
+# ТЯГА
 
-Downloads video and audio from YouTube. One program, no install, the interface is a page in your browser. Under the hood it's [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+*Tyaga* means "pull" in Russian and Ukrainian. That's the whole job: paste a YouTube link, get a file.
 
-## What it does
+One small program, nothing to install, and the interface is just a page in your browser. The heavy lifting is done by [yt-dlp](https://github.com/yt-dlp/yt-dlp); TYAGA makes it pleasant.
 
-- **Video** in MP4 at the best quality. The "for editing" checkbox gives H.264 + AAC, so the file opens in DaVinci Resolve and any player.
-- **Audio** in M4A (the original YouTube track, no re-encoding) or MP3 (highest quality).
-- For music: clean tags (artist, title without "(Official Video)", year) and a square album cover.
-- A whole album as one video with chapters → **split into separate tracks** with numbers and titles.
-- **Whole playlists** — into their own folder, numbered.
-- **A playlist as one file**: the "as one file" checkbox glues the whole playlist into one long audio or video, each video becomes a chapter. If all videos have the same format, they're joined without re-encoding (fast, no quality loss); otherwise everything is re-encoded to one format first (slower, especially for video). The separate pieces are deleted afterwards.
-- A queue: paste a bunch of links at once, cancel any of them.
-- **From your phone** over home Wi-Fi: add a link and grab the finished file.
+## What it can do
 
-Files are saved to `Downloads/YouTube`.
+**Video.** MP4 at the best quality, or capped at 1080p / 720p / 480p if you'd rather not download a 4K monster. Tick "for editing" and you get H.264 + AAC, which opens in DaVinci Resolve and any player.
 
-## How to run
+**Music.** M4A (the original YouTube track, untouched) or MP3. The tags come out clean: real artist, title without "(Official Video)", year, and a square album cover instead of a 16:9 thumbnail.
 
-Download the archive for your system from [Releases](../../releases), unpack it anywhere and run `tyaga`. A page opens in your browser.
+**Albums.** A whole album uploaded as one video with chapters? It gets split into proper numbered tracks.
 
-On the first start TYAGA downloads everything it needs into a `bin` folder next to itself: yt-dlp, ffmpeg and Deno (yt-dlp needs Deno to deal with YouTube). On Windows that's about 250 MB, once. TYAGA updates its own copy of yt-dlp on every start — YouTube changes things often, and old versions stop working. If you already have yt-dlp, ffmpeg or Deno installed, TYAGA uses them and downloads nothing.
+**Playlists and channels.** A playlist goes into its own folder, numbered. A channel link works too, and you get its videos. Or tick "as one file" to glue the whole playlist into one long audio or video, where every video becomes a chapter.
 
-The TYAGA folder is portable — move it anywhere, even to a USB stick.
+**No sponsors.** SponsorBlock cuts the "this video is sponsored by…" bits and the "don't forget to subscribe". For music it also trims the talking and the movie-scene intros from clips, leaving just the song.
 
-Close the console window and TYAGA quits.
+**From your phone.** Paste a link on the phone and the computer downloads it. Then grab the finished file right onto the phone.
 
-**Windows.** If SmartScreen says "Windows protected your PC", click "More info" → "Run anyway". The program isn't signed, which is normal for small projects.
+Plus the little things: a queue (paste ten links at once), the switches remember how you left them, and endless YouTube Mixes are stopped after the first 25 videos.
 
-**macOS.** If the system refuses to open it: `xattr -d com.apple.quarantine tyaga`. Install ffmpeg with Homebrew: `brew install ffmpeg`.
+Everything lands in `Downloads/YouTube`.
 
-**Linux.** Install ffmpeg from your package manager: `sudo apt install ffmpeg` (or your distro's equivalent).
+## Run it
+
+Grab the archive for your system from [Releases](../../releases), unpack it anywhere, run `tyaga`. A page opens. That's it.
+
+On the first run TYAGA fetches what it needs into a `bin` folder next to itself: yt-dlp, ffmpeg and Deno (yt-dlp needs Deno to deal with YouTube). On Windows that's about 250 MB, once. Every download is checked against the checksum its project publishes. yt-dlp updates itself on every start, because YouTube keeps changing things. Already have these tools installed? TYAGA uses yours.
+
+The folder is portable, so carry it on a USB stick if you like.
+
+**Closing it.** On Windows there's no console window, only the page. Hit **Quit** at the bottom, or just close the tab: TYAGA finishes whatever is downloading and leaves on its own. Run it again while it's open, and it simply brings the page back. If something goes wrong, `tyaga.log` next to the program says what happened.
+
+**Windows** may say "Windows protected your PC". Click "More info", then "Run anyway". The program isn't signed, which is normal for small projects.
+
+**macOS** may refuse to open it: `xattr -d com.apple.quarantine tyaga`. ffmpeg comes from Homebrew: `brew install ffmpeg`.
+
+**Linux:** `sudo apt install ffmpeg` (or your distro's version of it).
 
 ## From your phone
 
-At the bottom of the page there's "Phone: off". Click it and an address with a short code appears, like `http://192.168.1.5:8765/?t=k7m2pq`. Open it on a phone on the same Wi-Fi. Links added from the phone download to the computer, and finished files can be downloaded right to the phone.
+Click "Phone: off" at the bottom of the page. An address with a short code appears, something like `http://192.168.1.5:8765/?t=k7m2pq`. Open it on a phone on the same Wi-Fi.
 
-- The code is new every time you turn this on. Without it nobody on the network can do anything, and after 20 wrong attempts the access turns itself off.
-- The first time, Windows asks about the firewall — allow access on private networks.
-- The computer has to be on: it's the one doing the downloading.
+The code is new every time, nobody on the network gets in without it, and after 20 wrong guesses the door closes by itself. The first time, Windows asks about the firewall: allow private networks. And the computer has to stay on, since it's the one doing the downloading.
 
-## If YouTube asks you to sign in
+## When YouTube wants you to sign in
 
-Some videos are only available to signed-in users (or YouTube starts thinking you're a bot). Export your YouTube cookies from the browser in Netscape format (for example with the "Get cookies.txt LOCALLY" extension) and put the file as `youtube-cookies.txt` next to the program.
+Some videos are for signed-in users only, and sometimes YouTube decides you're a bot. Export your YouTube cookies in Netscape format (the "Get cookies.txt LOCALLY" extension does it) and save the file as `youtube-cookies.txt` next to the program.
 
-Cookies are access to your account. Don't send them to anyone and don't commit them anywhere (`.gitignore` already excludes them).
+Cookies are the keys to your account. Don't send them to anyone and don't commit them anywhere (`.gitignore` already keeps them out).
 
-## How it works
+## Under the hood
 
-TYAGA starts a tiny web server on your computer (reachable only from this computer, with a one-time token in the address) and opens the page. The page sends links to the server, the server runs yt-dlp for them one at a time, reads its output and tells the page how it's going.
+TYAGA starts a tiny web server that only this computer can reach, with a one-time token in the address, and opens the page. The page hands links to the server, the server runs yt-dlp one link at a time and reports how it's going.
 
 ```
-main.go         server, phone access
-jobs.go         download queue, yt-dlp command, tags for split tracks
-merge.go        gluing a playlist into one file with chapters
-tools.go        finding and auto-downloading yt-dlp, ffmpeg, Deno
-proc_*.go       things that differ between Windows and Linux/macOS
-index.html      the whole page: markup, styles, script
+main.go      the server and phone access
+app.go       life without a console: log, single instance, quitting
+jobs.go      the queue and the yt-dlp command
+merge.go     gluing a playlist into one file
+tools.go     finding and downloading yt-dlp, ffmpeg, Deno
+proc_*.go    the bits that differ between Windows and Linux/macOS
+index.html   the whole page
 ```
 
-No third-party libraries — only the Go standard library.
+Only the Go standard library, no third-party packages.
 
 ## Build it yourself
 
-You need [Go](https://go.dev/dl/) 1.22 or newer.
+You need [Go](https://go.dev/dl/) 1.22 or newer:
 
 ```
 go build -o tyaga .
 ```
 
-For another system: `GOOS=windows GOARCH=amd64 go build -o tyaga.exe .`
+For Windows without the console window: `GOOS=windows GOARCH=amd64 go build -ldflags -H=windowsgui -o tyaga.exe .`
 
-Options: `-out folder` — where to save, `-no-browser` — don't open the browser.
+Flags: `-out folder` sets where files go, `-no-browser` skips opening the page (TYAGA then doesn't quit by itself).
 
-A release with builds for all systems: Actions → Release → Run workflow → a version like `v1.0.0`.
+To publish a release with builds for every system: Actions → Release → Run workflow → a version like `v1.2.0`.
 
-## History
+## How it started
 
-It started as `TYAGA.cmd` — a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it was rewritten in Go to become one program that runs everywhere.
+As `TYAGA.cmd`: a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it grew up and was rewritten in Go, into one program that runs everywhere.
 
 ## License
 
-[MIT](LICENSE). yt-dlp, ffmpeg and Deno are separate projects with their own licenses; TYAGA doesn't include them, it downloads them from their official pages.
+[MIT](LICENSE). yt-dlp, ffmpeg and Deno are separate projects with their own licenses. TYAGA doesn't ship them, it downloads them from their official pages.

@@ -58,7 +58,11 @@ label{color:var(--dim);cursor:pointer;user-select:none}
     <label><input type="checkbox" id="playlist"> whole playlist</label>
     <label id="mergeBox" hidden title="The whole playlist as one long file, each video is a chapter"><input type="checkbox" id="merge"> as one file</label>
     <label data-for="audio" id="splitBox" hidden><input type="checkbox" id="split" checked> split by chapters</label>
+    <div class="seg" id="quality" data-for="video" title="Maximum video quality">
+      <button data-v="0" class="on">Best</button><button data-v="1080">1080p</button><button data-v="720">720p</button><button data-v="480">480p</button>
+    </div>
     <label data-for="video" title="H.264 + AAC — opens in DaVinci Resolve and any player"><input type="checkbox" id="edit"> for editing</label>
+    <label title="Cut sponsor ads, self-promo and &quot;subscribe!&quot; bits (SponsorBlock). For music also the non-music parts of a clip."><input type="checkbox" id="sponsors" checked> no sponsors</label>
     <button class="go" id="go">Download</button>
   </div>
   <div class="msg" id="msg"></div>
@@ -69,6 +73,7 @@ label{color:var(--dim);cursor:pointer;user-select:none}
   <div class="foot">
     <button id="open" data-local>Open folder</button>
     <button id="clear">Clear finished</button>
+    <button id="quit" data-local title="Downloads stop; unfinished files resume next time">Quit</button>
     <button id="lan" class="right" data-local>Phone: off</button>
   </div>
   <div class="phone" id="phone" hidden>
@@ -81,7 +86,7 @@ label{color:var(--dim);cursor:pointer;user-select:none}
 </main><script>
 var TOKEN = new URLSearchParams(location.search).get('t');
 var LABEL = { queued: 'queued', running: 'downloading', done: 'done', error: 'error', cancelled: 'cancelled' };
-var state = {}, lastList = '', OFFLINE = 'TYAGA is not responding. Start the program again.';
+var state = {}, lastList = '', closed = false, OFFLINE = 'TYAGA is not responding. Start the program again.';
 
 function $(id) { return document.getElementById(id); }
 
@@ -105,16 +110,21 @@ function api(path, body) {
 }
 
 // A switch made of several buttons: returns a function that gives the selected value.
+// With an argument it selects that value (used to restore the saved settings).
 function segmented(id, onChange) {
   var value = $(id).querySelector('.on').dataset.v;
-  $(id).querySelectorAll('button').forEach(function (b) {
-    b.onclick = function () {
-      value = b.dataset.v;
-      $(id).querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
-      if (onChange) onChange(value);
-    };
-  });
-  return function () { return value; };
+  function pick(b) {
+    value = b.dataset.v;
+    $(id).querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    if (onChange) onChange(value);
+    save();
+  }
+  $(id).querySelectorAll('button').forEach(function (b) { b.onclick = function () { pick(b); }; });
+  return function (v) {
+    var b = v != null && $(id).querySelector('[data-v="' + v + '"]');
+    if (b) pick(b);
+    return value;
+  };
 }
 
 // Elements with data-for="audio" / "video" are visible only in their mode.
@@ -122,6 +132,28 @@ var mode = segmented('mode', function (m) {
   document.querySelectorAll('[data-for]').forEach(function (e) { e.hidden = e.dataset.for !== m; });
 });
 var format = segmented('format');
+var quality = segmented('quality');
+var BOXES = ['playlist', 'merge', 'split', 'edit', 'sponsors'];
+
+// The switches are remembered in this browser. Storage may be unavailable (private mode),
+// then they just start from the defaults.
+var restoring = true;
+function save() {
+  if (restoring) return;
+  var s = { mode: mode(), format: format(), quality: quality() };
+  BOXES.forEach(function (id) { s[id] = $(id).checked; });
+  try { localStorage.setItem('tyaga', JSON.stringify(s)); } catch (e) {}
+}
+function restore() {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem('tyaga')); } catch (e) {}
+  if (s) {
+    mode(s.mode); format(s.format); quality(s.quality);
+    BOXES.forEach(function (id) { if (typeof s[id] === 'boolean') $(id).checked = s[id]; });
+  }
+  restoring = false;
+}
+BOXES.forEach(function (id) { $(id).addEventListener('change', save); });
 
 // "As one file" only makes sense for a playlist; and then splitting by chapters doesn't.
 function syncBoxes() {
@@ -130,14 +162,16 @@ function syncBoxes() {
   $('splitBox').style.opacity = $('split').disabled ? .4 : '';
 }
 $('playlist').onchange = $('merge').onchange = syncBoxes;
+restore();
+syncBoxes();
 
 function add() {
   var text = $('links').value.trim();
   if (!text) return;
   api('/api/add', {
     text: text, mode: mode(), format: format(),
-    playlist: $('playlist').checked, split: $('split').checked, edit: $('edit').checked,
-    merge: $('playlist').checked && $('merge').checked,
+    quality: +quality(), playlist: $('playlist').checked, split: $('split').checked, edit: $('edit').checked,
+    merge: $('playlist').checked && $('merge').checked, sponsors: $('sponsors').checked,
   }).then(function (r) {
     $('msg').textContent = r.error || '';
     if (!r.error) $('links').value = '';
@@ -149,6 +183,23 @@ $('go').onclick = add;
 $('links').onkeydown = function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); add(); } };
 $('open').onclick = function () { api('/api/open', {}); };
 $('clear').onclick = function () { api('/api/clear', {}).then(refresh); };
+$('quit').onclick = function () {
+  var busy = (state.jobs || []).some(function (j) { return j.status === 'queued' || j.status === 'running'; });
+  if (busy && !confirm('Something is still downloading. Quit anyway?')) return;
+  closed = true;
+  api('/api/quit', {}).catch(function () {}).then(showClosed);
+};
+
+// Closing or reloading the page: tell TYAGA. If no page comes back, it finishes
+// the downloads and quits by itself.
+addEventListener('pagehide', function () {
+  if (!closed) navigator.sendBeacon('/api/bye?t=' + encodeURIComponent(TOKEN));
+});
+
+function showClosed() {
+  document.querySelector('main').innerHTML =
+    '<h1>ТЯГА</h1><div class="card">TYAGA is closed. Run it again when you need it.</div>';
+}
 $('lan').onclick = function () {
   api('/api/lan', { on: !(state.lan && state.lan.on) }).then(function (r) {
     $('msg').textContent = r.error || '';
@@ -160,7 +211,8 @@ function statusText(j) {
   // The file is at 100%, but yt-dlp is still working: converting, merging or embedding the cover.
   var s = j.status === 'running' && j.progress >= 100 ? 'processing' : LABEL[j.status];
   if (j.status === 'queued' && !state.ready) s = 'waiting for setup';
-  if (j.merge && j.playlist) s = '1 file · ' + s;
+  if (j.merge && j.list) s = '1 file · ' + s;
+  if (j.mode === 'video' && j.quality) s = j.quality + 'p · ' + s;
   return j.mode === 'audio' ? '♪ ' + j.format.toUpperCase() + ' · ' + s : s;
 }
 
@@ -207,6 +259,7 @@ function render() {
       var details = [j.progress.toFixed(1) + '%', j.speed, j.eta && (j.eta + ' left')];
       row.append(bar, el('div', 'sub', details.filter(Boolean).join(' · ')));
     }
+    if (j.note && j.status !== 'error') row.append(el('div', 'sub', j.note));
     if (j.status === 'error' && j.error) row.append(el('div', 'sub err', j.error));
     if (j.status === 'done' && j.error) row.append(el('div', 'sub', j.error)); // e.g. skipped videos in a merged playlist
 
@@ -226,13 +279,15 @@ function render() {
 }
 
 function refresh() {
+  if (closed) return;
   api('/api/state')
     .then(function (s) {
+      if (closed) return; // an answer that was on its way when Quit was clicked
       state = s;
       if ($('msg').textContent === OFFLINE) $('msg').textContent = '';
       render();
     })
-    .catch(function () { $('msg').textContent = OFFLINE; });
+    .catch(function () { if (!closed && $('msg')) $('msg').textContent = OFFLINE; });
 }
 
 refresh();
