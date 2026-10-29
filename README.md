@@ -64,7 +64,7 @@ proc_*.go    the bits that differ between Windows and Linux/macOS
 index.html   the whole page
 ```
 
-Only the Go standard library, no third-party packages.
+Only the Go standard library, no third-party packages. The icon and the "Properties → Details" info of the Windows exe live in `winres/` and get baked into `rsrc_windows_*.syso`, which `go build` picks up by itself.
 
 ## Build it yourself
 
