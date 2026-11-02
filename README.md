@@ -101,7 +101,7 @@ To publish a release with builds for every system: Actions → Release → Run w
 
 ## How it started
 
-As `TYAGA.cmd`: a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it grew up and was rewritten in Go, into one program that runs everywhere. The icon says the same thing as the name: a "Т" with speed lines, pulling.
+As `TYAGA.cmd`: a batch file and a TypeScript program in one file, Windows-only and needing Deno installed. Then it grew up and was rewritten in Go, into one program that runs everywhere. The icon says the same thing as the name: a hook that caught a video and is pulling it out.
 
 ## License
 

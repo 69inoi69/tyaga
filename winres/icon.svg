@@ -1,7 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect x="9" y="9" width="238" height="238" rx="55" fill="#161616" stroke="#3a3a3a" stroke-width="3"/>
-  <g transform="translate(128 128) scale(.78) translate(-131 -133)" stroke-linecap="round">
-    <path d="M40 92 H96 M28 128 H90 M40 164 H96" stroke="#ff6b2c" stroke-width="14" opacity=".85"/>
-    <path d="M112 70 H224 M168 70 V196" stroke="#fff" stroke-width="34"/>
-  </g>
+  <!-- TYAGA: a fishing hook that caught a play button. -->
+  <rect width="256" height="256" rx="58" fill="#161616"/>
+  <circle cx="118" cy="168" r="18" fill="none" stroke="#ff6b2c" stroke-width="8"/>
+  <circle cx="118" cy="214" r="34" fill="#ff6b2c"/>
+  <path d="M107.8 199.72 L107.8 228.28 L134.32 214 Z" fill="#fff" stroke="#fff" stroke-width="5.44" stroke-linejoin="round"/>
+  <path d="M160 0 V24" stroke="#8a96a3" stroke-width="6"/>
+  <circle cx="160" cy="38" r="12" fill="none" stroke="#fff" stroke-width="9"/>
+  <path d="M160 50 V122 A42 42 0 0 1 76 122 V96" fill="none" stroke="#fff" stroke-width="18"/>
+  <path d="M65 98 L76 66 L87 98 Z" fill="#fff"/>
+  <path d="M83 92 L99 110" stroke="#fff" stroke-width="9.9" stroke-linecap="round"/>
+  <path d="M118 150 A18 18 0 0 0 118 186" fill="none" stroke="#ff6b2c" stroke-width="8"/>
 </svg>
