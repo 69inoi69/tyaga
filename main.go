@@ -44,30 +44,7 @@ var (
 )
 
 // lanPort is a fixed port for the phone, so the address stays the same between runs.
-// localPort is the same for this computer, for the "Send to TYAGA" bookmark.
-const (
-	lanPort   = 8765
-	localPort = 8764
-)
-
-var fixedPort bool // got localPort: the bookmark works
-
-// savedToken is the token of the local page, kept in .tyaga-token next to the program,
-// because the "Send to TYAGA" bookmark has it inside. Only this computer can reach the
-// local server, the token keeps other websites out. Read-only folder: a new token each time.
-func savedToken() string {
-	file := filepath.Join(appDir, ".tyaga-token")
-	if b, err := os.ReadFile(file); err == nil {
-		if t := strings.TrimSpace(string(b)); len(t) == 32 {
-			if _, err := hex.DecodeString(t); err == nil {
-				return t
-			}
-		}
-	}
-	t := randomToken()
-	os.WriteFile(file, []byte(t), 0o600)
-	return t
-}
+const lanPort = 8765
 
 func main() {
 	consoleUTF8()
@@ -87,18 +64,12 @@ func main() {
 	}
 	openLog()
 
-	// Local server: 127.0.0.1 only. A fixed port and a token that survives restarts, so the
-	// "Send to TYAGA" bookmark keeps working. If the port is busy, any free one (the bookmark
-	// then doesn't work until the next start).
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
-	if err != nil {
-		ln, err = net.Listen("tcp", "127.0.0.1:0")
-	}
+	// Local server: 127.0.0.1 only, the OS picks a free port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		fail("Could not start the server: " + err.Error())
 	}
-	fixedPort = ln.Addr().(*net.TCPAddr).Port == localPort
-	localToken := savedToken()
+	localToken := randomToken()
 	address := fmt.Sprintf("http://%s/?t=%s", ln.Addr(), localToken)
 
 	os.WriteFile(instanceFile(), []byte(address), 0o600)
@@ -291,7 +262,6 @@ func handler(remote bool, token func() string) http.Handler {
 				}
 				if !remote { // the link with the code is shown only on the computer itself
 					state["lan"] = map[string]any{"on": on, "url": link}
-					state["fixedPort"] = fixedPort
 				}
 				writeJSON(w, state)
 			case "/api/file":

@@ -46,8 +46,7 @@ input[type=checkbox]{accent-color:var(--acc)}
 .times{color:var(--dim);display:inline-flex;gap:6px;align-items:center}
 .times input{width:68px;background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:inherit;outline-color:var(--acc)}
 .sub .link{background:none;border:0;padding:0;margin-top:2px;color:var(--acc);cursor:pointer;font:inherit}
-.bm{display:inline-block;margin:8px 0;padding:7px 16px;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;text-decoration:none;cursor:grab}
-.warn{color:var(--err)}
+
 </style></head><body><main>
 <h1>ТЯГА <small id="ver"></small></h1>
 
@@ -82,14 +81,7 @@ input[type=checkbox]{accent-color:var(--acc)}
     <button id="open" data-local>Open folder</button>
     <button id="clear">Clear finished</button>
     <button id="quit" data-local title="Downloads stop; unfinished files resume next time">Quit</button>
-    <button id="sendBtn" class="right" data-local>Send to TYAGA</button>
-    <button id="lan" data-local>Phone: off</button>
-  </div>
-  <div class="phone" id="send" hidden>
-    Drag this button to your browser's bookmarks bar:<br>
-    <a class="bm" id="bm" title="Drag me to the bookmarks bar">→ ТЯГА</a><br>
-    Then, watching a video on YouTube, click the bookmark: the video goes into the queue with the switches as you left them here. TYAGA has to be running.
-    <div class="warn" id="bmWarn" hidden>Right now TYAGA got a different port (8764 was busy), so the bookmark won't reach it until the next start.</div>
+    <button id="lan" class="right" data-local>Phone: off</button>
   </div>
   <div class="phone" id="phone" hidden>
     Open this on your phone (it has to be on the same Wi-Fi):
@@ -101,7 +93,7 @@ input[type=checkbox]{accent-color:var(--acc)}
 </main><script>
 var TOKEN = new URLSearchParams(location.search).get('t');
 var LABEL = { queued: 'queued', running: 'downloading', done: 'done', error: 'error', cancelled: 'cancelled' };
-// stopped: Quit was clicked, or this is the bookmark's little window. (Not "closed": that's
+// stopped: Quit was clicked. (Not "closed": that's
 // window.closed, a built-in that silently ignores being set.)
 var state = {}, lastList = '', stopped = false, OFFLINE = 'TYAGA is not responding. Start the program again.';
 
@@ -232,14 +224,6 @@ function showClosed() {
   document.querySelector('main').innerHTML =
     '<h1>ТЯГА</h1><div class="card">TYAGA is closed. Run it again when you need it.</div>';
 }
-$('sendBtn').onclick = function () { $('send').hidden = !$('send').hidden; };
-
-// The bookmark opens a small TYAGA window with the video's address in it (see the end of the script).
-$('bm').href = 'javascript:(function(){window.open(' +
-  JSON.stringify(location.origin + '/?t=' + encodeURIComponent(TOKEN) + '&add=') +
-  '+encodeURIComponent(location.href),"tyaga-add","width=460,height=200")})()';
-$('bm').onclick = function (e) { e.preventDefault(); }; // it's for dragging, not clicking here
-
 $('lan').onclick = function () {
   api('/api/lan', { on: !(state.lan && state.lan.on) }).then(function (r) {
     $('msg').textContent = r.error || '';
@@ -272,7 +256,6 @@ function render() {
   $('lan').textContent = lan.on ? 'Phone: on' : 'Phone: off';
   $('phone').hidden = !lan.on;
   $('phoneUrl').textContent = lan.url || '';
-  $('bmWarn').hidden = state.remote || state.fixedPort !== false;
 
   // Redraw the list only if something in it changed: otherwise a link
   // or the × button could vanish right under your finger.
@@ -339,28 +322,6 @@ function refresh() {
       render();
     })
     .catch(function () { if (!stopped && $('msg')) $('msg').textContent = OFFLINE; });
-}
-
-// Opened by the "Send to TYAGA" bookmark: the address has &add=<video>. Add it with the
-// saved switches. In the bookmark's small window just say so and close.
-var ADD = new URLSearchParams(location.search).get('add');
-if (ADD) {
-  history.replaceState(null, '', '/?t=' + encodeURIComponent(TOKEN)); // a reload mustn't add it again
-  var opts = options(ADD);
-  opts.from = opts.to = '';
-  if (window.name === 'tyaga-add') {
-    stopped = true; // this little window doesn't need the queue
-    document.querySelector('main').innerHTML = '<h1>ТЯГА</h1><div class="card" id="sent">Sending…</div>';
-  }
-  api('/api/add', opts).then(function (r) {
-    if (stopped) {
-      $('sent').textContent = r.error || '✓ Sent to TYAGA';
-      if (!r.error) setTimeout(function () { window.close(); }, 1200);
-    } else {
-      $('msg').textContent = r.error || '';
-      refresh();
-    }
-  }).catch(function () { if (stopped) $('sent').textContent = OFFLINE; });
 }
 
 refresh();
