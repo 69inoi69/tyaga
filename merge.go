@@ -16,6 +16,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -25,7 +27,45 @@ type track struct {
 	Filepath      string `json:"filepath"`
 	Title         string `json:"title"`
 	Artist        string `json:"artist"`
+	Uploader      string `json:"uploader"`
 	PlaylistTitle string `json:"playlist_title"`
+	Index         int    `json:"playlist_index"`
+}
+
+// who is the track's artist: the artist tag, otherwise the channel.
+func (t track) who() string {
+	for _, s := range []string{t.Artist, t.Uploader} {
+		if s = strings.TrimSpace(s); s != "" && s != "NA" {
+			return strings.TrimSpace(topicRe.ReplaceAllString(s, ""))
+		}
+	}
+	return ""
+}
+
+var topicRe = regexp.MustCompile(`(?i)\s*(- topic|vevo)$`)
+
+// albumArtist is the artist of the whole glued file. Tracks of one playlist often disagree:
+// one gets the artist from "Artist - Song" in its title, another just the channel name,
+// a feat. track names two people. So it's the artist of at least half of the tracks,
+// and "Various Artists" for a real compilation.
+func albumArtist(tracks []track) string {
+	count := map[string]int{}
+	best, known := "", 0
+	for _, t := range tracks {
+		if a := t.who(); a != "" {
+			known++
+			if count[a]++; count[a] > count[best] {
+				best = a
+			}
+		}
+	}
+	switch {
+	case known == 0:
+		return ""
+	case count[best]*2 >= len(tracks):
+		return best
+	}
+	return "Various Artists"
 }
 
 // probeInfo is the part of ffprobe's answer that matters here.
@@ -33,6 +73,7 @@ type probeInfo struct {
 	duration float64
 	audio    string // codec, sample rate, channels
 	video    string // codec, profile, size, frame rate, pixel format ("" for audio files)
+	cover    bool   // has an embedded cover picture
 	width    int
 	height   int
 	fps      float64
@@ -89,7 +130,9 @@ func probe(ffprobe, file string) (probeInfo, error) {
 		switch {
 		case s.Type == "audio" && info.audio == "":
 			info.audio = fmt.Sprintf("%s/%s/%d", s.Codec, s.SampleRate, s.Channels)
-		case s.Type == "video" && s.Disposition.AttachedPic == 0 && info.video == "":
+		case s.Type == "video" && s.Disposition.AttachedPic == 1:
+			info.cover = true
+		case s.Type == "video" && info.video == "":
 			info.video = fmt.Sprintf("%s/%s/%dx%d/%s/%s", s.Codec, s.Profile, s.Width, s.Height, s.Rate, s.PixFmt)
 			info.width, info.height = s.Width, s.Height
 			if a, b, ok := strings.Cut(s.Rate, "/"); ok && num(b) > 0 {
@@ -131,6 +174,11 @@ func mergePlaylist(j *Job, tracks []track) (string, error) {
 		return "", errors.New("ffprobe not found (it comes with ffmpeg)")
 	}
 
+	// Playlist order, whatever order yt-dlp reported them in (the ones that were already
+	// downloaded before may come first).
+	tracks = slices.Clone(tracks)
+	slices.SortStableFunc(tracks, func(a, b track) int { return a.Index - b.Index })
+
 	var infos []probeInfo
 	var kept []track
 	var total float64
@@ -158,10 +206,12 @@ func mergePlaylist(j *Job, tracks []track) (string, error) {
 	if title == "" || title == "NA" {
 		title = filepath.Base(dir)
 	}
-	artist := tracks[0].Artist
-	for _, t := range tracks {
-		if t.Artist != artist { // different artists — a compilation, no common artist
-			artist = ""
+	artist := albumArtist(tracks)
+	// Cover: from the first track that has one (a track whose thumbnail failed has none).
+	cover := ""
+	for i, t := range tracks {
+		if infos[i].cover {
+			cover = t.Filepath
 			break
 		}
 	}
@@ -170,8 +220,9 @@ func mergePlaylist(j *Job, tracks []track) (string, error) {
 	b.WriteString(";FFMETADATA1\n")
 	b.WriteString("title=" + metaEscape(title) + "\n")
 	b.WriteString("album=" + metaEscape(title) + "\n")
-	if artist != "" && artist != "NA" {
+	if artist != "" {
 		b.WriteString("artist=" + metaEscape(artist) + "\n")
+		b.WriteString("album_artist=" + metaEscape(artist) + "\n")
 	}
 	var start float64
 	for i, t := range tracks {
@@ -261,8 +312,12 @@ func mergePlaylist(j *Job, tracks []track) (string, error) {
 
 		args := []string{"-f", "concat", "-safe", "0", "-i", list, "-i", meta}
 		if j.Mode == "audio" {
-			args = append(args, "-i", tracks[0].Filepath,
-				"-map", "0:a:0", "-map", "2:v?", "-c", "copy", "-disposition:v", "attached_pic")
+			if cover != "" { // inputs first, then what goes where
+				args = append(args, "-i", cover, "-map", "0:a:0", "-map", "2:v:0", "-disposition:v", "attached_pic")
+			} else {
+				args = append(args, "-map", "0:a:0")
+			}
+			args = append(args, "-c", "copy")
 			if ext == ".mp3" {
 				args = append(args, "-id3v2_version", "3")
 			}
