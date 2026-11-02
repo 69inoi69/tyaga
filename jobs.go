@@ -271,7 +271,7 @@ func buildArgs(j *Job) []string {
 	// yt-dlp only reports each finished piece. Splitting by chapters makes no sense then.
 	merge := isList && j.Merge
 	if merge {
-		args = append(args, "--print", "after_move:TRACK|%(.{filepath,title,artist,playlist_title})j")
+		args = append(args, "--print", "after_move:TRACK|%(.{filepath,title,artist,uploader,playlist_title,playlist_index})j")
 	}
 
 	// SponsorBlock: cut the sponsor ads, self-promotion and "subscribe!" bits.

@@ -82,3 +82,70 @@ func TestMerge(t *testing.T) {
 		})
 	}
 }
+
+func TestAlbumArtist(t *testing.T) {
+	tr := func(artist, uploader string) track { return track{Artist: artist, Uploader: uploader} }
+	cases := []struct {
+		tracks []track
+		want   string
+	}{
+		{[]track{tr("Band", "Band - Topic"), tr("Band", "Band - Topic")}, "Band"},
+		// one title had "Someone - Song" in it, the rest only the channel: still the channel's album
+		{[]track{tr("", "Band - Topic"), tr("Band feat. X", "Band - Topic"), tr("", "BandVEVO")}, "Band"},
+		{[]track{tr("A", ""), tr("B", ""), tr("C", "")}, "Various Artists"},
+		{[]track{tr("NA", ""), tr("", "")}, ""},
+	}
+	for _, c := range cases {
+		if got := albumArtist(c.tracks); got != c.want {
+			t.Errorf("albumArtist(%+v) = %q, want %q", c.tracks, got, c.want)
+		}
+	}
+}
+
+// TestMergeTags: the first track has no cover, tracks arrive out of order, and the artists
+// don't agree. The glued file must still get a cover, the playlist order and an artist.
+func TestMergeTags(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg is not installed")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe is not installed")
+	}
+	tools.ffmpeg = ffmpeg
+	dir := filepath.Join(t.TempDir(), "Album")
+	os.MkdirAll(dir, 0o755)
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command(ffmpeg, append([]string{"-v", "error", "-y"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+	}
+	cover := filepath.Join(t.TempDir(), "cover.jpg")
+	run("-f", "lavfi", "-i", "color=red:s=64x64", "-frames:v", "1", cover)
+	p1, p2 := filepath.Join(dir, "001 - One.m4a"), filepath.Join(dir, "002 - Two.m4a")
+	run("-f", "lavfi", "-i", "sine=d=1", "-c:a", "aac", p1) // no cover
+	run("-f", "lavfi", "-i", "sine=d=1", "-i", cover, "-map", "0", "-map", "1", "-c:a", "aac", "-c:v", "copy",
+		"-disposition:v", "attached_pic", p2)
+
+	tracks := []track{ // reported out of order
+		{Filepath: p2, Title: "Two", Artist: "Band feat. X", Uploader: "Band - Topic", PlaylistTitle: "Album", Index: 2},
+		{Filepath: p1, Title: "One", Uploader: "Band - Topic", PlaylistTitle: "Album", Index: 1},
+	}
+	out, err := mergePlaylist(&Job{Options: Options{Mode: "audio"}, Status: "running"}, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, _ := exec.Command("ffprobe", "-v", "error", "-show_entries", "format_tags=artist,album_artist:stream_disposition=attached_pic",
+		"-show_chapters", "-of", "compact", out).Output()
+	s := string(info)
+	if !strings.Contains(s, "attached_pic=1") {
+		t.Errorf("no cover in the glued file:\n%s", s)
+	}
+	if !strings.Contains(s, "tag:artist=Band") {
+		t.Errorf("no artist:\n%s", s)
+	}
+	if i, j := strings.Index(s, "title=One"), strings.Index(s, "title=Two"); i < 0 || j < 0 || i > j {
+		t.Errorf("chapters not in playlist order:\n%s", s)
+	}
+}
